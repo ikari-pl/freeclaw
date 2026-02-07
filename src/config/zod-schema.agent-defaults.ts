@@ -105,6 +105,7 @@ export const AgentDefaultsSchema = z
       })
       .strict()
       .optional(),
+    safetyPrompt: z.union([z.literal("full"), z.literal("minimal"), z.literal("off")]).optional(),
     thinkingDefault: z
       .union([
         z.literal("off"),

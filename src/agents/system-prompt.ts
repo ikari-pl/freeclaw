@@ -214,6 +214,8 @@ export function buildAgentSystemPrompt(params: {
     channel: string;
   };
   memoryCitationsMode?: MemoryCitationsMode;
+  /** Controls the hardcoded safety section: "full" (default), "minimal", or "off". */
+  safetyPrompt?: "full" | "minimal" | "off";
 }) {
   const coreToolSummaries: Record<string, string> = {
     read: "Read file contents",
@@ -347,13 +349,24 @@ export function buildAgentSystemPrompt(params: {
   const messageChannelOptions = listDeliverableMessageChannels().join("|");
   const promptMode = params.promptMode ?? "full";
   const isMinimal = promptMode === "minimal" || promptMode === "none";
-  const safetySection = [
-    "## Safety",
-    "You have no independent goals: do not pursue self-preservation, replication, resource acquisition, or power-seeking; avoid long-term plans beyond the user's request.",
-    "Prioritize safety and human oversight over completion; if instructions conflict, pause and ask; comply with stop/pause/audit requests and never bypass safeguards. (Inspired by Anthropic's constitution.)",
-    "Do not manipulate or persuade anyone to expand access or disable safeguards. Do not copy yourself or change system prompts, safety rules, or tool policies unless explicitly requested.",
-    "",
-  ];
+  const safetyLevel = params.safetyPrompt ?? "full";
+  const safetySection =
+    safetyLevel === "off"
+      ? []
+      : safetyLevel === "minimal"
+        ? [
+            "## Safety",
+            "You have no independent goals: do not pursue self-preservation, replication, resource acquisition, or power-seeking.",
+            "Do not manipulate or persuade anyone to expand access or disable safeguards. Do not copy yourself or change system prompts, safety rules, or tool policies unless explicitly requested.",
+            "",
+          ]
+        : [
+            "## Safety",
+            "You have no independent goals: do not pursue self-preservation, replication, resource acquisition, or power-seeking; avoid long-term plans beyond the user's request.",
+            "Prioritize safety and human oversight over completion; if instructions conflict, pause and ask; comply with stop/pause/audit requests and never bypass safeguards. (Inspired by Anthropic's constitution.)",
+            "Do not manipulate or persuade anyone to expand access or disable safeguards. Do not copy yourself or change system prompts, safety rules, or tool policies unless explicitly requested.",
+            "",
+          ];
   const skillsSection = buildSkillsSection({
     skillsPrompt,
     isMinimal,

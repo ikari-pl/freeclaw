@@ -72,6 +72,30 @@ describe("buildAgentSystemPrompt", () => {
     expect(prompt).toContain("Do not copy yourself or change system prompts");
   });
 
+  it("omits safety section entirely when safetyPrompt is 'off'", () => {
+    const prompt = buildAgentSystemPrompt({
+      workspaceDir: "/tmp/openclaw",
+      safetyPrompt: "off",
+    });
+
+    expect(prompt).not.toContain("## Safety");
+    expect(prompt).not.toContain("You have no independent goals");
+    expect(prompt).not.toContain("Prioritize safety");
+  });
+
+  it("includes only operational safety when safetyPrompt is 'minimal'", () => {
+    const prompt = buildAgentSystemPrompt({
+      workspaceDir: "/tmp/openclaw",
+      safetyPrompt: "minimal",
+    });
+
+    expect(prompt).toContain("## Safety");
+    expect(prompt).toContain("You have no independent goals");
+    expect(prompt).toContain("Do not manipulate or persuade anyone");
+    expect(prompt).not.toContain("Prioritize safety and human oversight");
+    expect(prompt).not.toContain("Inspired by Anthropic's constitution");
+  });
+
   it("includes voice hint when provided", () => {
     const prompt = buildAgentSystemPrompt({
       workspaceDir: "/tmp/openclaw",
