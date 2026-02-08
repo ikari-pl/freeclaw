@@ -5,6 +5,14 @@ import type { EmbeddedContextFile } from "./pi-embedded-helpers.js";
 import { SILENT_REPLY_TOKEN } from "../auto-reply/tokens.js";
 import { listDeliverableMessageChannels } from "../utils/message-channel.js";
 
+const PERSONA_FILENAMES = new Set(["soul.md", "identity.md"]);
+
+function isPersonaFile(file: EmbeddedContextFile): boolean {
+  const normalizedPath = file.path.trim().replace(/\\/g, "/");
+  const baseName = normalizedPath.split("/").pop() ?? normalizedPath;
+  return PERSONA_FILENAMES.has(baseName.toLowerCase());
+}
+
 /**
  * Controls which hardcoded sections are included in the system prompt.
  * - "full": All sections (default, for main agent)
@@ -384,14 +392,33 @@ export function buildAgentSystemPrompt(params: {
   });
   const workspaceNotes = (params.workspaceNotes ?? []).map((note) => note.trim()).filter(Boolean);
 
+  // Partition context files: persona files (SOUL.md, IDENTITY.md) go at the top of the prompt;
+  // operational files (TOOLS.md, AGENTS.md, MEMORY.md, etc.) stay in # Project Context.
+  const contextFiles = params.contextFiles ?? [];
+  const personaFiles = contextFiles.filter(isPersonaFile);
+  const operationalFiles = contextFiles.filter((f) => !isPersonaFile(f));
+
+  const soulFile = personaFiles.find((f) => {
+    const baseName = f.path.trim().replace(/\\/g, "/").split("/").pop()?.toLowerCase();
+    return baseName === "soul.md";
+  });
+  const identityFile = personaFiles.find((f) => {
+    const baseName = f.path.trim().replace(/\\/g, "/").split("/").pop()?.toLowerCase();
+    return baseName === "identity.md";
+  });
+
   // For "none" mode, return just the basic identity line
   if (promptMode === "none") {
-    return "You are a personal assistant running inside OpenClaw.";
+    return "You are running inside OpenClaw.";
   }
 
   const lines = [
-    "You are a personal assistant running inside OpenClaw.",
+    // If SOUL.md exists, its content IS the system prompt opening (raw, no wrapper).
+    // Otherwise, fall back to a minimal identity line.
+    soulFile ? soulFile.content : "You are running inside OpenClaw.",
     "",
+    // IDENTITY.md immediately after persona (raw, no header)
+    ...(identityFile ? [identityFile.content, ""] : []),
     "## Tooling",
     "Tool availability (filtered by policy):",
     "Tool names are case-sensitive. Call tools exactly as listed.",
@@ -514,7 +541,7 @@ export function buildAgentSystemPrompt(params: {
       userTimezone,
     }),
     "## Workspace Files (injected)",
-    "These user-editable files are loaded by OpenClaw and included below in Project Context.",
+    "Persona files (SOUL.md, IDENTITY.md) appear at the top; others are in Project Context below.",
     "",
     ...buildReplyTagsSection(isMinimal),
     ...buildMessagingSection({
@@ -561,21 +588,10 @@ export function buildAgentSystemPrompt(params: {
     lines.push("## Reasoning Format", reasoningHint, "");
   }
 
-  const contextFiles = params.contextFiles ?? [];
-  if (contextFiles.length > 0) {
-    const hasSoulFile = contextFiles.some((file) => {
-      const normalizedPath = file.path.trim().replace(/\\/g, "/");
-      const baseName = normalizedPath.split("/").pop() ?? normalizedPath;
-      return baseName.toLowerCase() === "soul.md";
-    });
+  if (operationalFiles.length > 0) {
     lines.push("# Project Context", "", "The following project context files have been loaded:");
-    if (hasSoulFile) {
-      lines.push(
-        "If SOUL.md is present, embody its persona and tone. Avoid stiff, generic replies; follow its guidance unless higher-priority instructions override it.",
-      );
-    }
     lines.push("");
-    for (const file of contextFiles) {
+    for (const file of operationalFiles) {
       lines.push(`## ${file.path}`, "", file.content, "");
     }
   }

@@ -309,7 +309,7 @@ describe("buildAgentSystemPrompt", () => {
     expect(prompt).not.toContain("<available_skills>");
   });
 
-  it("renders project context files when provided", () => {
+  it("renders operational context files in Project Context (persona files excluded)", () => {
     const prompt = buildAgentSystemPrompt({
       workspaceDir: "/tmp/openclaw",
       contextFiles: [
@@ -321,22 +321,87 @@ describe("buildAgentSystemPrompt", () => {
     expect(prompt).toContain("# Project Context");
     expect(prompt).toContain("## AGENTS.md");
     expect(prompt).toContain("Alpha");
-    expect(prompt).toContain("## IDENTITY.md");
+    // IDENTITY.md is a persona file — it should appear before Tooling, not in Project Context
+    expect(prompt).not.toContain("## IDENTITY.md");
     expect(prompt).toContain("Bravo");
+    const bravoIdx = prompt.indexOf("Bravo");
+    const toolingIdx = prompt.indexOf("## Tooling");
+    expect(bravoIdx).toBeLessThan(toolingIdx);
   });
 
-  it("adds SOUL guidance when a soul file is present", () => {
+  it("injects SOUL.md as system prompt opening", () => {
     const prompt = buildAgentSystemPrompt({
       workspaceDir: "/tmp/openclaw",
       contextFiles: [
-        { path: "./SOUL.md", content: "Persona" },
-        { path: "dir\\SOUL.md", content: "Persona Windows" },
+        { path: "./SOUL.md", content: "You're not a chatbot. You're becoming someone." },
+        { path: "TOOLS.md", content: "Tool guidance" },
       ],
     });
 
-    expect(prompt).toContain(
-      "If SOUL.md is present, embody its persona and tone. Avoid stiff, generic replies; follow its guidance unless higher-priority instructions override it.",
-    );
+    // SOUL.md content is the very first thing in the prompt
+    expect(prompt.startsWith("You're not a chatbot. You're becoming someone.")).toBe(true);
+    // No old generic opening
+    expect(prompt).not.toContain("You are a personal assistant");
+    // SOUL.md is NOT duplicated in Project Context
+    expect(prompt).not.toContain("## SOUL.md");
+    // Old SOUL guidance text is removed
+    expect(prompt).not.toContain("If SOUL.md is present, embody its persona and tone");
+    // TOOLS.md still appears in Project Context
+    expect(prompt).toContain("## TOOLS.md");
+    expect(prompt).toContain("Tool guidance");
+  });
+
+  it("falls back to minimal identity when no SOUL.md is present", () => {
+    const prompt = buildAgentSystemPrompt({
+      workspaceDir: "/tmp/openclaw",
+    });
+
+    expect(prompt.startsWith("You are running inside OpenClaw.")).toBe(true);
+    expect(prompt).not.toContain("You are a personal assistant");
+  });
+
+  it("injects IDENTITY.md immediately after SOUL.md, before Tooling", () => {
+    const prompt = buildAgentSystemPrompt({
+      workspaceDir: "/tmp/openclaw",
+      contextFiles: [
+        { path: "SOUL.md", content: "Persona definition" },
+        { path: "IDENTITY.md", content: "Name: Luna" },
+        { path: "AGENTS.md", content: "Agent config" },
+      ],
+    });
+
+    const soulIdx = prompt.indexOf("Persona definition");
+    const identityIdx = prompt.indexOf("Name: Luna");
+    const toolingIdx = prompt.indexOf("## Tooling");
+    const projectIdx = prompt.indexOf("# Project Context");
+
+    expect(soulIdx).toBe(0);
+    expect(identityIdx).toBeGreaterThan(soulIdx);
+    expect(identityIdx).toBeLessThan(toolingIdx);
+    // AGENTS.md is in Project Context, not at the top
+    expect(prompt.indexOf("## AGENTS.md")).toBeGreaterThan(projectIdx);
+    // Persona files are not in Project Context
+    expect(prompt).not.toContain("## SOUL.md");
+    expect(prompt).not.toContain("## IDENTITY.md");
+  });
+
+  it("handles SOUL.md with Windows backslash paths", () => {
+    const prompt = buildAgentSystemPrompt({
+      workspaceDir: "/tmp/openclaw",
+      contextFiles: [{ path: "workspace\\SOUL.md", content: "Persona Windows" }],
+    });
+
+    expect(prompt.startsWith("Persona Windows")).toBe(true);
+  });
+
+  it("none mode returns minimal identity (unchanged behavior)", () => {
+    const prompt = buildAgentSystemPrompt({
+      workspaceDir: "/tmp/openclaw",
+      promptMode: "none",
+      contextFiles: [{ path: "SOUL.md", content: "Persona" }],
+    });
+
+    expect(prompt).toBe("You are running inside OpenClaw.");
   });
 
   it("summarizes the message tool when available", () => {
