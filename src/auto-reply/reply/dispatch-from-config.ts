@@ -2,7 +2,7 @@ import type { OpenClawConfig } from "../../config/config.js";
 import type { FinalizedMsgContext } from "../templating.js";
 import type { GetReplyOptions, ReplyPayload } from "../types.js";
 import type { ReplyDispatcher, ReplyDispatchKind } from "./reply-dispatcher.js";
-import { resolveSessionAgentId } from "../../agents/agent-scope.js";
+import { resolveAgentDir, resolveSessionAgentId } from "../../agents/agent-scope.js";
 import { loadSessionStore, resolveStorePath } from "../../config/sessions.js";
 import { logVerbose } from "../../globals.js";
 import { isDiagnosticsEnabled } from "../../infra/diagnostic-events.js";
@@ -16,6 +16,7 @@ import { maybeApplyTtsToPayload, normalizeTtsAutoMode, resolveTtsConfig } from "
 import { getReplyFromConfig } from "../reply.js";
 import { formatAbortReplyText, tryFastAbortFromMessage } from "./abort.js";
 import { shouldSkipDuplicateInbound } from "./inbound-dedupe.js";
+import { maybeProofreadPayload, stripTtsDirectivesForDisplay } from "./proofread-transform.js";
 import { isRoutableChannel, routeReply } from "./route-reply.js";
 
 const AUDIO_PLACEHOLDER_RE = /^<media:audio>(\s*\([^)]*\))?$/i;
@@ -147,6 +148,11 @@ export async function dispatchReplyFromConfig(params: {
 
   const inboundAudio = isInboundAudioContext(ctx);
   const sessionTtsAuto = resolveSessionTtsAuto(ctx, cfg);
+
+  // Resolve agentDir for automatic proofread transform.
+  const proofreadAgentId = resolveSessionAgentId({ sessionKey: ctx.SessionKey, config: cfg });
+  const proofreadAgentDir = proofreadAgentId ? resolveAgentDir(cfg, proofreadAgentId) : undefined;
+
   const hookRunner = getGlobalHookRunner();
   if (hookRunner?.hasHooks("message_received")) {
     const timestamp =
@@ -359,11 +365,21 @@ export async function dispatchReplyFromConfig(params: {
     const deferredTtsTexts: string[] = [];
 
     for (const reply of replies) {
+      // Automatic proofread: correct Polish text before TTS picks it up.
+      // The transform embeds [[tts:text]]corrected_voice[[/tts:text]] directives
+      // that parseTtsDirectives() will extract for the voice-optimized variant.
+      const proofreadReply = await maybeProofreadPayload({
+        payload: reply,
+        cfg,
+        agentDir: proofreadAgentDir,
+      });
+
       // In deferred mode, send text immediately without waiting for TTS.
+      // Strip [[tts:text]] directives from display text so they don't leak to users.
       const ttsReply = isDeferred
-        ? reply
+        ? stripTtsDirectivesForDisplay(proofreadReply)
         : await maybeApplyTtsToPayload({
-            payload: reply,
+            payload: proofreadReply,
             cfg,
             channel: ttsChannel,
             kind: "final",
@@ -371,8 +387,9 @@ export async function dispatchReplyFromConfig(params: {
             ttsAuto: sessionTtsAuto,
           });
 
-      if (isDeferred && reply.text?.trim()) {
-        deferredTtsTexts.push(reply.text.trim());
+      // For deferred TTS, accumulate full text (with directives) so TTS gets corrected_voice.
+      if (isDeferred && proofreadReply.text?.trim()) {
+        deferredTtsTexts.push(proofreadReply.text.trim());
       }
 
       if (shouldRouteToOriginating && originatingChannel && originatingTo) {

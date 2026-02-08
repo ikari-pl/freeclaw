@@ -49,6 +49,23 @@ export type AudioConfig = {
   };
 };
 
+export type ProofreadParticipant = {
+  name?: string;
+  /** Grammatical gender for agreement, e.g. "kobieta" | "mężczyzna". */
+  gender?: string;
+};
+
+export type ProofreadConfig = {
+  /** Enable automatic proofreading of outbound replies (default: false). */
+  auto?: boolean;
+  /** Cloud model to use for proofreading (default: "anthropic/claude-sonnet-4-5-20250929"). */
+  model?: string;
+  /** Info about the speaker (bot) — used for grammatical gender agreement. */
+  speaker?: ProofreadParticipant;
+  /** Info about the addressee (user) — used for grammatical gender agreement. */
+  addressee?: ProofreadParticipant;
+};
+
 export type MessagesConfig = {
   /** @deprecated Use `whatsapp.messagePrefix` (WhatsApp-only inbound prefix). */
   messagePrefix?: string;
@@ -84,6 +101,8 @@ export type MessagesConfig = {
   removeAckAfterReply?: boolean;
   /** Text-to-speech settings for outbound replies. */
   tts?: TtsConfig;
+  /** Automatic proofreading of outbound replies via cloud model. */
+  proofread?: ProofreadConfig;
 };
 
 export type NativeCommandsSetting = boolean | "auto";
