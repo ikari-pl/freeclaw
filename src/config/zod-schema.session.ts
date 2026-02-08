@@ -97,6 +97,27 @@ export const MessagesSchema = z
     ackReactionScope: z.enum(["group-mentions", "group-all", "direct", "all"]).optional(),
     removeAckAfterReply: z.boolean().optional(),
     tts: TtsConfigSchema,
+    proofread: z
+      .object({
+        auto: z.boolean().optional(),
+        model: z.string().optional(),
+        speaker: z
+          .object({
+            name: z.string().optional(),
+            gender: z.string().optional(),
+          })
+          .strict()
+          .optional(),
+        addressee: z
+          .object({
+            name: z.string().optional(),
+            gender: z.string().optional(),
+          })
+          .strict()
+          .optional(),
+      })
+      .strict()
+      .optional(),
   })
   .strict()
   .optional();
