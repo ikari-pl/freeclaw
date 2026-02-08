@@ -163,7 +163,7 @@ export const MarkdownConfigSchema = z
   .optional();
 
 export const TtsProviderSchema = z.enum(["elevenlabs", "openai", "edge"]);
-export const TtsModeSchema = z.enum(["final", "all"]);
+export const TtsModeSchema = z.enum(["final", "all", "deferred"]);
 export const TtsAutoSchema = z.enum(["off", "always", "inbound", "tagged"]);
 export const TtsConfigSchema = z
   .object({

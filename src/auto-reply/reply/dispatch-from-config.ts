@@ -350,17 +350,31 @@ export async function dispatchReplyFromConfig(params: {
 
     const replies = replyResult ? (Array.isArray(replyResult) ? replyResult : [replyResult]) : [];
 
+    const ttsMode = resolveTtsConfig(cfg).mode ?? "final";
+    const isDeferred = ttsMode === "deferred";
+
     let queuedFinal = false;
     let routedFinalCount = 0;
+    // Accumulate text from all final replies for deferred TTS generation.
+    const deferredTtsTexts: string[] = [];
+
     for (const reply of replies) {
-      const ttsReply = await maybeApplyTtsToPayload({
-        payload: reply,
-        cfg,
-        channel: ttsChannel,
-        kind: "final",
-        inboundAudio,
-        ttsAuto: sessionTtsAuto,
-      });
+      // In deferred mode, send text immediately without waiting for TTS.
+      const ttsReply = isDeferred
+        ? reply
+        : await maybeApplyTtsToPayload({
+            payload: reply,
+            cfg,
+            channel: ttsChannel,
+            kind: "final",
+            inboundAudio,
+            ttsAuto: sessionTtsAuto,
+          });
+
+      if (isDeferred && reply.text?.trim()) {
+        deferredTtsTexts.push(reply.text.trim());
+      }
+
       if (shouldRouteToOriginating && originatingChannel && originatingTo) {
         // Route final reply to originating channel.
         const result = await routeReply({
@@ -386,12 +400,58 @@ export async function dispatchReplyFromConfig(params: {
       }
     }
 
-    const ttsMode = resolveTtsConfig(cfg).mode ?? "final";
+    // Deferred TTS: generate audio after text was already sent, then deliver audio-only.
+    if (isDeferred && deferredTtsTexts.length > 0) {
+      try {
+        const combinedText = deferredTtsTexts.join("\n\n");
+        const ttsResult = await maybeApplyTtsToPayload({
+          payload: { text: combinedText },
+          cfg,
+          channel: ttsChannel,
+          kind: "final",
+          inboundAudio,
+          ttsAuto: sessionTtsAuto,
+        });
+        if (ttsResult.mediaUrl) {
+          const ttsOnlyPayload: ReplyPayload = {
+            mediaUrl: ttsResult.mediaUrl,
+            audioAsVoice: ttsResult.audioAsVoice,
+          };
+          if (shouldRouteToOriginating && originatingChannel && originatingTo) {
+            const result = await routeReply({
+              payload: ttsOnlyPayload,
+              channel: originatingChannel,
+              to: originatingTo,
+              sessionKey: ctx.SessionKey,
+              accountId: ctx.AccountId,
+              threadId: ctx.MessageThreadId,
+              cfg,
+            });
+            queuedFinal = result.ok || queuedFinal;
+            if (result.ok) {
+              routedFinalCount += 1;
+            }
+            if (!result.ok) {
+              logVerbose(
+                `dispatch-from-config: route-reply (deferred-tts) failed: ${result.error ?? "unknown error"}`,
+              );
+            }
+          } else {
+            const didQueue = dispatcher.sendFinalReply(ttsOnlyPayload);
+            queuedFinal = didQueue || queuedFinal;
+          }
+        }
+      } catch (err) {
+        logVerbose(
+          `dispatch-from-config: deferred TTS failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
     // Generate TTS-only reply after block streaming completes (when there's no final reply).
     // This handles the case where block streaming succeeds and drops final payloads,
     // but we still want TTS audio to be generated from the accumulated block content.
     if (
-      ttsMode === "final" &&
+      (ttsMode === "final" || ttsMode === "deferred") &&
       replies.length === 0 &&
       blockCount > 0 &&
       accumulatedBlockText.trim()

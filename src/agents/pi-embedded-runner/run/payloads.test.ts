@@ -1,8 +1,23 @@
 import type { AssistantMessage } from "@mariozechner/pi-ai";
-import { describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildEmbeddedRunPayloads } from "./payloads.js";
 
 describe("buildEmbeddedRunPayloads", () => {
+  let testDir: string;
+  let testAudioPath: string;
+
+  beforeAll(() => {
+    testDir = mkdtempSync(path.join(tmpdir(), "payloads-test-"));
+    testAudioPath = path.join(testDir, "voice-123.opus");
+    writeFileSync(testAudioPath, "fake-audio");
+  });
+
+  afterAll(() => {
+    rmSync(testDir, { recursive: true, force: true });
+  });
   const errorJson =
     '{"type":"error","error":{"details":null,"type":"overloaded_error","message":"Overloaded"},"request_id":"req_011CX7DwS7tSvggaNHmefwWg"}';
   const errorJsonPretty = `{
@@ -233,7 +248,7 @@ describe("buildEmbeddedRunPayloads", () => {
         {
           toolName: "tts",
           meta: "text: 'Hello world'",
-          resultText: "[[audio_as_voice]]\nMEDIA:/tmp/voice-123.opus",
+          resultText: `[[audio_as_voice]]\nMEDIA:${testAudioPath}`,
         },
       ],
       lastAssistant: { stopReason: "end_turn" } as AssistantMessage,
@@ -246,7 +261,7 @@ describe("buildEmbeddedRunPayloads", () => {
     // Should have both the text reply AND the media item
     const mediaPayloads = payloads.filter((p) => p.mediaUrl);
     expect(mediaPayloads).toHaveLength(1);
-    expect(mediaPayloads[0]?.mediaUrl).toBe("/tmp/voice-123.opus");
+    expect(mediaPayloads[0]?.mediaUrl).toBe(testAudioPath);
     expect(mediaPayloads[0]?.audioAsVoice).toBe(true);
 
     const textPayloads = payloads.filter((p) => p.text && !p.mediaUrl);
@@ -263,7 +278,7 @@ describe("buildEmbeddedRunPayloads", () => {
         {
           toolName: "tts",
           meta: "text: 'Hello world'",
-          resultText: "[[audio_as_voice]]\nMEDIA:/tmp/voice-123.opus",
+          resultText: `[[audio_as_voice]]\nMEDIA:${testAudioPath}`,
         },
       ],
       lastAssistant: { stopReason: "end_turn" } as AssistantMessage,

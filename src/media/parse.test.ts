@@ -1,6 +1,7 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import * as os from "os";
 import * as path from "path";
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { splitMediaFromOutput } from "./parse.js";
 
 describe("splitMediaFromOutput", () => {
@@ -61,27 +62,61 @@ describe("splitMediaFromOutput", () => {
     expect(result.text).toBe("");
   });
 
+  it("rejects non-existent temp paths (hallucinated by model)", () => {
+    const fakePath = path.join(os.tmpdir(), "hallucinated-voice-999.mp3");
+    const result = splitMediaFromOutput(`MEDIA:${fakePath}`);
+    expect(result.mediaUrls).toBeUndefined();
+  });
+
   describe("temp directory paths", () => {
     const tempDir = path.resolve(os.tmpdir());
+    let testDir: string;
+
+    beforeAll(() => {
+      testDir = mkdtempSync(path.join(tempDir, "parse-test-"));
+      writeFileSync(path.join(testDir, "voice.opus"), "fake-audio");
+      writeFileSync(path.join(testDir, "audio.mp3"), "fake-audio");
+      mkdirSync(path.join(testDir, "nested"), { recursive: true });
+      writeFileSync(path.join(testDir, "nested", "audio.mp3"), "fake-audio");
+    });
+
+    afterAll(() => {
+      rmSync(testDir, { recursive: true, force: true });
+    });
 
     it("accepts paths under OS temp directory", () => {
-      const testPath = path.join(tempDir, "tts-abc123", "voice.opus");
+      const testPath = path.join(testDir, "voice.opus");
       const result = splitMediaFromOutput(`MEDIA:${testPath}`);
       expect(result.mediaUrls).toHaveLength(1);
       expect(result.mediaUrls?.[0]).toBe(testPath);
     });
 
     it.skipIf(path.sep !== "/")("accepts paths under /tmp on POSIX", () => {
-      const testPath = path.join("/tmp", "tts-abc123", "voice.opus");
-      const result = splitMediaFromOutput(`MEDIA:${testPath}`);
-      expect(result.mediaUrls).toHaveLength(1);
-      expect(result.mediaUrls?.[0]).toBe(testPath);
+      // Create a real file under /tmp for this test
+      const tmpTestDir = mkdtempSync("/tmp/parse-posix-test-");
+      const testPath = path.join(tmpTestDir, "voice.opus");
+      writeFileSync(testPath, "fake-audio");
+      try {
+        const result = splitMediaFromOutput(`MEDIA:${testPath}`);
+        expect(result.mediaUrls).toHaveLength(1);
+        expect(result.mediaUrls?.[0]).toBe(testPath);
+      } finally {
+        rmSync(tmpTestDir, { recursive: true, force: true });
+      }
     });
 
     it("accepts nested temp directory paths", () => {
-      const testPath = path.join(tempDir, "openclaw", "sessions", "audio.mp3");
+      const testPath = path.join(testDir, "nested", "audio.mp3");
       const result = splitMediaFromOutput(`MEDIA:${testPath}`);
       expect(result.mediaUrls).toHaveLength(1);
+    });
+
+    it("extracts media from bracket-wrapped MEDIA lines", () => {
+      const testPath = path.join(testDir, "voice.opus");
+      const input = `Some text\n[MEDIA:${testPath}]`;
+      const result = splitMediaFromOutput(input);
+      expect(result.mediaUrls).toEqual([testPath]);
+      expect(result.text).toBe("Some text");
     });
 
     it("rejects path traversal from temp directory", () => {
@@ -96,14 +131,12 @@ describe("splitMediaFromOutput", () => {
     });
 
     it("rejects absolute paths outside temp directory", () => {
-      // OS-portable path outside any temp root
       const outsidePath = path.join(path.parse(tempDir).root, "outside", "file.txt");
       const result = splitMediaFromOutput(`MEDIA:${outsidePath}`);
       expect(result.mediaUrls).toBeUndefined();
     });
 
     it("rejects absolute paths with similar prefix but outside temp", () => {
-      // e.g., /tmp-evil/file should not match /tmp
       const evilPath = `${tempDir}-evil${path.sep}malicious.sh`;
       const result = splitMediaFromOutput(`MEDIA:${evilPath}`);
       expect(result.mediaUrls).toBeUndefined();

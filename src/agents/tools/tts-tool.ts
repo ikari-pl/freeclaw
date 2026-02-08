@@ -20,8 +20,7 @@ export function createTtsTool(opts?: {
   return {
     label: "TTS",
     name: "tts",
-    description:
-      "Convert text to speech. Returns a MEDIA: line. Always include the MEDIA: line in your reply along with an equivalent text message.",
+    description: "Convert text to speech. Use when the user requests audio or voice output.",
     parameters: TtsToolSchema,
     execute: async (_toolCallId, args) => {
       const params = args as Record<string, unknown>;

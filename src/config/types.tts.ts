@@ -1,6 +1,6 @@
 export type TtsProvider = "elevenlabs" | "openai" | "edge";
 
-export type TtsMode = "final" | "all";
+export type TtsMode = "final" | "all" | "deferred";
 
 export type TtsAutoMode = "off" | "always" | "inbound" | "tagged";
 

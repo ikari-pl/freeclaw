@@ -355,12 +355,19 @@ export function buildTtsSystemPromptHint(cfg: OpenClawConfig): string | undefine
       : autoMode === "tagged"
         ? "Only use TTS when you include [[tts]] or [[tts:text]] tags."
         : undefined;
+
+  // Build provider-specific delivery tips.
+  const isV3 = config.provider === "elevenlabs" && config.elevenlabs.modelId?.includes("eleven_v3");
+  const v3Tags = isV3
+    ? "ElevenLabs v3 audio tags for expressive delivery (place at start of a line): [whispers], [shouts], [sings], [laughs], [sighs], [sarcastic], [curious], [excited], [crying], [mischievously]. Pauses: [pause], [short pause], [long pause]."
+    : undefined;
+
   return [
-    "Voice (TTS) is enabled.",
+    "Voice (TTS) is enabled — your replies are automatically converted to speech.",
     autoHint,
     `Keep spoken text ≤${maxLength} chars to avoid auto-summary (summary ${summarize}).`,
-    "Use [[tts:...]] and optional [[tts:text]]...[[/tts:text]] to control voice/expressiveness.",
-    "After calling the tts tool, always include the MEDIA: line from the tool result in your reply along with an equivalent text message.",
+    v3Tags,
+    "Write naturally for spoken delivery: short sentences, conversational tone, no markdown/formatting.",
   ]
     .filter(Boolean)
     .join("\n");
@@ -1273,12 +1280,19 @@ export async function textToSpeech(params: {
         const seedOverride = params.overrides?.elevenlabs?.seed;
         const normalizationOverride = params.overrides?.elevenlabs?.applyTextNormalization;
         const languageOverride = params.overrides?.elevenlabs?.languageCode;
+        const effectiveModelId = modelIdOverride ?? config.elevenlabs.modelId;
+        // ElevenLabs v3 Opus output truncates the final ~3s of audio.
+        // Append a pause tag so the audible content isn't cut off.
+        const needsTrailingPad =
+          effectiveModelId.includes("eleven_v3") && output.elevenlabs.startsWith("opus");
+        const paddedText = needsTrailingPad ? `${params.text} [pause]` : params.text;
+
         audioBuffer = await elevenLabsTTS({
-          text: params.text,
+          text: paddedText,
           apiKey,
           baseUrl: config.elevenlabs.baseUrl,
           voiceId: voiceIdOverride ?? config.elevenlabs.voiceId,
-          modelId: modelIdOverride ?? config.elevenlabs.modelId,
+          modelId: effectiveModelId,
           outputFormat: output.elevenlabs,
           seed: seedOverride ?? config.elevenlabs.seed,
           applyTextNormalization: normalizationOverride ?? config.elevenlabs.applyTextNormalization,
@@ -1470,7 +1484,8 @@ export async function maybeApplyTtsToPayload(params: {
   }
 
   const mode = config.mode ?? "final";
-  if (mode === "final" && params.kind && params.kind !== "final") {
+  // "deferred" behaves like "final" for kind-gating — only generate TTS for final replies.
+  if ((mode === "final" || mode === "deferred") && params.kind && params.kind !== "final") {
     return nextPayload;
   }
 

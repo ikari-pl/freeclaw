@@ -1,12 +1,14 @@
 // Shared helpers for parsing MEDIA tokens from command/stdout text.
 
+import { existsSync } from "node:fs";
 import * as os from "os";
 import * as path from "path";
 import { parseFenceSpans } from "../markdown/fences.js";
 import { parseAudioTag } from "./audio-tags.js";
 
-// Allow optional wrapping backticks and punctuation after the token; capture the core token.
-export const MEDIA_TOKEN_RE = /\bMEDIA:\s*`?([^\n]+)`?/gi;
+// Allow optional wrapping brackets/backticks around the token; capture the core token.
+// The leading \[? handles model output like [MEDIA:/path] where brackets wrap the token.
+export const MEDIA_TOKEN_RE = /\[?\bMEDIA:\s*`?([^\n]+)`?/gi;
 
 export function normalizeMediaSource(src: string) {
   return src.startsWith("file://") ? src.replace("file://", "") : src;
@@ -84,8 +86,9 @@ function isValidMedia(candidate: string, opts?: { allowSpaces?: boolean }) {
     return true;
   }
 
-  // Allow absolute paths under OS temp directory (for tool outputs like TTS)
-  if (path.isAbsolute(candidate) && isSafeTempPath(candidate)) {
+  // Allow absolute paths under OS temp directory (for tool outputs like TTS).
+  // Require the file to actually exist to reject hallucinated paths from models.
+  if (path.isAbsolute(candidate) && isSafeTempPath(candidate) && existsSync(candidate)) {
     return true;
   }
 
@@ -147,7 +150,7 @@ export function splitMediaFromOutput(raw: string): {
     }
 
     const trimmedStart = line.trimStart();
-    if (!trimmedStart.startsWith("MEDIA:")) {
+    if (!/\bMEDIA:/i.test(trimmedStart)) {
       keptLines.push(line);
       lineOffset += line.length + 1; // +1 for newline
       continue;
