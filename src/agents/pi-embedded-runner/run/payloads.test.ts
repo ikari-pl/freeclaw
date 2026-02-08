@@ -226,6 +226,47 @@ describe("buildEmbeddedRunPayloads", () => {
     expect(payloads).toHaveLength(0);
   });
 
+  it("extracts media from tool results even when inline tool results are off", () => {
+    const payloads = buildEmbeddedRunPayloads({
+      assistantTexts: ["Here is the audio!"],
+      toolMetas: [{ toolName: "tts", meta: "[[audio_as_voice]]\nMEDIA:/tmp/voice-123.opus" }],
+      lastAssistant: { stopReason: "end_turn" } as AssistantMessage,
+      sessionKey: "session:telegram",
+      inlineToolResultsAllowed: false,
+      verboseLevel: "off",
+      reasoningLevel: "off",
+    });
+
+    // Should have both the text reply AND the media item
+    const mediaPayloads = payloads.filter((p) => p.mediaUrl);
+    expect(mediaPayloads).toHaveLength(1);
+    expect(mediaPayloads[0]?.mediaUrl).toBe("/tmp/voice-123.opus");
+    expect(mediaPayloads[0]?.audioAsVoice).toBe(true);
+
+    const textPayloads = payloads.filter((p) => p.text && !p.mediaUrl);
+    expect(textPayloads).toHaveLength(1);
+    expect(textPayloads[0]?.text).toBe("Here is the audio!");
+    // audioAsVoice propagates to all items with media
+    expect(textPayloads[0]?.audioAsVoice).toBeFalsy();
+  });
+
+  it("does not duplicate media when inline tool results are on", () => {
+    const payloads = buildEmbeddedRunPayloads({
+      assistantTexts: ["Here is the audio!"],
+      toolMetas: [{ toolName: "tts", meta: "[[audio_as_voice]]\nMEDIA:/tmp/voice-123.opus" }],
+      lastAssistant: { stopReason: "end_turn" } as AssistantMessage,
+      sessionKey: "session:telegram",
+      inlineToolResultsAllowed: true,
+      verboseLevel: "on",
+      reasoningLevel: "off",
+      toolResultFormat: "markdown",
+    });
+
+    // Media should appear only once (from the inlineToolResults path)
+    const mediaPayloads = payloads.filter((p) => p.mediaUrl);
+    expect(mediaPayloads).toHaveLength(1);
+  });
+
   it("shows non-recoverable tool errors to the user", () => {
     const payloads = buildEmbeddedRunPayloads({
       assistantTexts: [],

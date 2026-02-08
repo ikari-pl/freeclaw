@@ -360,6 +360,7 @@ export function buildTtsSystemPromptHint(cfg: OpenClawConfig): string | undefine
     autoHint,
     `Keep spoken text ≤${maxLength} chars to avoid auto-summary (summary ${summarize}).`,
     "Use [[tts:...]] and optional [[tts:text]]...[[/tts:text]] to control voice/expressiveness.",
+    "After calling the tts tool, always include the MEDIA: line from the tool result in your reply along with an equivalent text message.",
   ]
     .filter(Boolean)
     .join("\n");

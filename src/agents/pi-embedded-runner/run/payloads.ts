@@ -108,6 +108,21 @@ export function buildEmbeddedRunPayloads(params: {
     }
   }
 
+  // Extract media from tool results even when inline tool results are disabled.
+  // This ensures TTS audio and other tool-generated media reach the user
+  // without showing verbose tool output text.
+  if (!inlineToolResults && params.toolMetas.length > 0) {
+    for (const { meta } of params.toolMetas) {
+      if (!meta) {
+        continue;
+      }
+      const { mediaUrls, audioAsVoice } = parseReplyDirectives(meta);
+      if (mediaUrls?.length) {
+        replyItems.push({ text: "", media: mediaUrls, audioAsVoice });
+      }
+    }
+  }
+
   const reasoningText =
     params.lastAssistant && params.reasoningLevel === "on"
       ? formatReasoningMessage(extractAssistantThinking(params.lastAssistant))

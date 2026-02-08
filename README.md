@@ -123,10 +123,16 @@ Run `openclaw doctor` to surface risky/misconfigured DM policies.
 - **[Multi-channel inbox](https://docs.openclaw.ai/channels)** — WhatsApp, Telegram, Slack, Discord, Google Chat, Signal, BlueBubbles (iMessage), iMessage (legacy), Microsoft Teams, Matrix, Zalo, Zalo Personal, WebChat, macOS, iOS/Android.
 - **[Multi-agent routing](https://docs.openclaw.ai/gateway/configuration)** — route inbound channels/accounts/peers to isolated agents (workspaces + per-agent sessions).
 - **[Voice Wake](https://docs.openclaw.ai/nodes/voicewake) + [Talk Mode](https://docs.openclaw.ai/nodes/talk)** — always-on speech for macOS/iOS/Android with ElevenLabs.
+- **[Text-to-Speech](https://docs.openclaw.ai/nodes/audio)** — agent-driven TTS via EdgeTTS and API providers; audio delivered as voice messages on Telegram, WhatsApp, and other channels.
+- **[Voice Calls](https://docs.openclaw.ai/channels)** — inbound/outbound telephony via Twilio, Telnyx, and Plivo with real-time transcription and TTS.
+- **[Memory](https://docs.openclaw.ai/tools)** — LanceDB-backed vector memory with per-agent search, storage, and local or cloud embeddings (Voyage AI, OpenAI).
+- **[Image Generation](https://docs.openclaw.ai/tools)** — generate images via configurable providers with model fallback.
 - **[Live Canvas](https://docs.openclaw.ai/platforms/mac/canvas)** — agent-driven visual workspace with [A2UI](https://docs.openclaw.ai/platforms/mac/canvas#canvas-a2ui).
 - **[First-class tools](https://docs.openclaw.ai/tools)** — browser, canvas, nodes, cron, sessions, and Discord/Slack actions.
+- **[Local models](https://docs.openclaw.ai/concepts/models)** — bring your own models via Ollama, LM Studio, or any OpenAI-compatible endpoint alongside cloud providers.
+- **[Cron + webhooks](https://docs.openclaw.ai/automation/cron-jobs)** — scheduled jobs, one-shot reminders, and [webhook triggers](https://docs.openclaw.ai/automation/webhook) with announce delivery.
 - **[Companion apps](https://docs.openclaw.ai/platforms/macos)** — macOS menu bar app + iOS/Android [nodes](https://docs.openclaw.ai/nodes).
-- **[Onboarding](https://docs.openclaw.ai/start/wizard) + [skills](https://docs.openclaw.ai/tools/skills)** — wizard-driven setup with bundled/managed/workspace skills.
+- **[Onboarding](https://docs.openclaw.ai/start/wizard) + [skills](https://docs.openclaw.ai/tools/skills)** — wizard-driven setup with bundled/managed/workspace skills + [ClawHub](https://clawhub.com) registry.
 
 ## Star History
 
