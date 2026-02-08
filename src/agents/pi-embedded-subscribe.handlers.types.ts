@@ -22,7 +22,7 @@ export type ToolErrorSummary = {
 
 export type EmbeddedPiSubscribeState = {
   assistantTexts: string[];
-  toolMetas: Array<{ toolName?: string; meta?: string }>;
+  toolMetas: Array<{ toolName?: string; meta?: string; resultText?: string }>;
   toolMetaById: Map<string, string | undefined>;
   toolSummaryById: Set<string>;
   lastToolError?: ToolErrorSummary;

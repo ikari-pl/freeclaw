@@ -161,7 +161,9 @@ export function handleToolExecutionEnd(
   const isToolError = isError || isToolResultError(result);
   const sanitizedResult = sanitizeToolResult(result);
   const meta = ctx.state.toolMetaById.get(toolCallId);
-  ctx.state.toolMetas.push({ toolName, meta });
+  // Extract text from tool result content blocks for media extraction in payloads.
+  const resultText = extractToolResultText(sanitizedResult);
+  ctx.state.toolMetas.push({ toolName, meta, resultText });
   ctx.state.toolMetaById.delete(toolCallId);
   ctx.state.toolSummaryById.delete(toolCallId);
   if (isToolError) {

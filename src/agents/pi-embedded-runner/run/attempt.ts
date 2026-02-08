@@ -885,10 +885,14 @@ export async function runEmbeddedAttempt(
 
       const toolMetasNormalized = toolMetas
         .filter(
-          (entry): entry is { toolName: string; meta?: string } =>
+          (entry): entry is { toolName: string; meta?: string; resultText?: string } =>
             typeof entry.toolName === "string" && entry.toolName.trim().length > 0,
         )
-        .map((entry) => ({ toolName: entry.toolName, meta: entry.meta }));
+        .map((entry) => ({
+          toolName: entry.toolName,
+          meta: entry.meta,
+          resultText: entry.resultText,
+        }));
 
       return {
         aborted,

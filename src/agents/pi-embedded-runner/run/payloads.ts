@@ -18,7 +18,7 @@ import {
   formatReasoningMessage,
 } from "../../pi-embedded-utils.js";
 
-type ToolMetaEntry = { toolName: string; meta?: string };
+type ToolMetaEntry = { toolName: string; meta?: string; resultText?: string };
 
 export function buildEmbeddedRunPayloads(params: {
   assistantTexts: string[];
@@ -108,18 +108,16 @@ export function buildEmbeddedRunPayloads(params: {
     }
   }
 
-  // Extract media from tool results even when inline tool results are disabled.
-  // This ensures TTS audio and other tool-generated media reach the user
-  // without showing verbose tool output text.
-  if (!inlineToolResults && params.toolMetas.length > 0) {
-    for (const { meta } of params.toolMetas) {
-      if (!meta) {
-        continue;
-      }
-      const { mediaUrls, audioAsVoice } = parseReplyDirectives(meta);
-      if (mediaUrls?.length) {
-        replyItems.push({ text: "", media: mediaUrls, audioAsVoice });
-      }
+  // Extract media from tool result text (e.g. TTS audio paths).
+  // This runs regardless of the inline tool results flag because `meta` only
+  // contains the tool args display — the actual MEDIA lines live in `resultText`.
+  for (const { resultText } of params.toolMetas) {
+    if (!resultText) {
+      continue;
+    }
+    const { mediaUrls, audioAsVoice } = parseReplyDirectives(resultText);
+    if (mediaUrls?.length) {
+      replyItems.push({ text: "", media: mediaUrls, audioAsVoice });
     }
   }
 

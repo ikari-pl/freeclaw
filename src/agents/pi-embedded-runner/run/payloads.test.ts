@@ -229,7 +229,13 @@ describe("buildEmbeddedRunPayloads", () => {
   it("extracts media from tool results even when inline tool results are off", () => {
     const payloads = buildEmbeddedRunPayloads({
       assistantTexts: ["Here is the audio!"],
-      toolMetas: [{ toolName: "tts", meta: "[[audio_as_voice]]\nMEDIA:/tmp/voice-123.opus" }],
+      toolMetas: [
+        {
+          toolName: "tts",
+          meta: "text: 'Hello world'",
+          resultText: "[[audio_as_voice]]\nMEDIA:/tmp/voice-123.opus",
+        },
+      ],
       lastAssistant: { stopReason: "end_turn" } as AssistantMessage,
       sessionKey: "session:telegram",
       inlineToolResultsAllowed: false,
@@ -253,7 +259,13 @@ describe("buildEmbeddedRunPayloads", () => {
   it("does not duplicate media when inline tool results are on", () => {
     const payloads = buildEmbeddedRunPayloads({
       assistantTexts: ["Here is the audio!"],
-      toolMetas: [{ toolName: "tts", meta: "[[audio_as_voice]]\nMEDIA:/tmp/voice-123.opus" }],
+      toolMetas: [
+        {
+          toolName: "tts",
+          meta: "text: 'Hello world'",
+          resultText: "[[audio_as_voice]]\nMEDIA:/tmp/voice-123.opus",
+        },
+      ],
       lastAssistant: { stopReason: "end_turn" } as AssistantMessage,
       sessionKey: "session:telegram",
       inlineToolResultsAllowed: true,
