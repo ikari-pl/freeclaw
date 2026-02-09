@@ -1,7 +1,10 @@
 import { type Api, type Context, complete, type Model } from "@mariozechner/pi-ai";
 import { Type } from "@sinclair/typebox";
-import type { OpenClawConfig } from "../../config/config.js";
-import type { AnyAgentTool } from "./common.js";
+import type { AnyAgentTool } from "../../../src/agents/tools/common.js";
+import type { OpenClawConfig } from "../../../src/config/config.js";
+import { getApiKeyForModel, requireApiKey } from "../../../src/agents/model-auth.js";
+import { ensureOpenClawModelsJson } from "../../../src/agents/models-config.js";
+import { discoverAuthStorage, discoverModels } from "../../../src/agents/pi-model-discovery.js";
 import {
   DEFAULT_PROOFREAD_MODEL,
   SYSTEM_PROMPT,
@@ -9,11 +12,29 @@ import {
   buildUserMessage,
   parseProofreadResponse,
   stripEmotionTags,
-} from "../../auto-reply/reply/proofread-transform.js";
-import { getApiKeyForModel, requireApiKey } from "../model-auth.js";
-import { ensureOpenClawModelsJson } from "../models-config.js";
-import { discoverAuthStorage, discoverModels } from "../pi-model-discovery.js";
-import { jsonResult, readStringParam } from "./common.js";
+} from "../../../src/auto-reply/reply/proofread-transform.js";
+
+function readStringParam(
+  params: Record<string, unknown>,
+  key: string,
+  opts?: { required?: boolean },
+): string {
+  const raw = params[key];
+  if (typeof raw !== "string" || !raw.trim()) {
+    if (opts?.required) {
+      throw new Error(`${key} required`);
+    }
+    return "";
+  }
+  return raw.trim();
+}
+
+function jsonResult(payload: unknown) {
+  return {
+    content: [{ type: "text" as const, text: JSON.stringify(payload, null, 2) }],
+    details: payload,
+  };
+}
 
 const ProofreadToolSchema = Type.Object({
   text: Type.String({
