@@ -32,6 +32,7 @@ import {
 import { resolveModel } from "../agents/pi-embedded-runner/model.js";
 import { normalizeChannelId } from "../channels/plugins/index.js";
 import { logVerbose } from "../globals.js";
+import { getLogger } from "../logging/logger.js";
 import { isVoiceCompatibleAudio } from "../media/audio.js";
 import { CONFIG_DIR, resolveUserPath } from "../utils.js";
 
@@ -1320,6 +1321,17 @@ export async function textToSpeech(params: {
       writeFileSync(audioPath, audioBuffer);
       scheduleCleanup(tempDir);
 
+      // Log the resolved provider/voice/model on the happy path for debugging
+      const voiceInfo =
+        provider === "elevenlabs"
+          ? `voice=${params.overrides?.elevenlabs?.voiceId ?? config.elevenlabs.voiceId} model=${params.overrides?.elevenlabs?.modelId ?? config.elevenlabs.modelId}`
+          : provider === "openai"
+            ? `voice=${params.overrides?.openai?.voice ?? config.openai.voice} model=${params.overrides?.openai?.model ?? config.openai.model}`
+            : `voice=${config.edge.voice}`;
+      logVerbose(
+        `TTS: OK ${provider} ${voiceInfo} ${latencyMs}ms ${audioBuffer.length}B text=${params.text.length}c`,
+      );
+
       return {
         success: true,
         audioPath,
@@ -1453,6 +1465,15 @@ export async function maybeApplyTtsToPayload(params: {
     prefsPath,
     sessionAuto: params.ttsAuto,
   });
+
+  // Temporary debug trace — uses file logger directly to bypass verbose gating
+  getLogger().debug(
+    {
+      message: `TTS:maybeApply autoMode=${autoMode} kind=${params.kind} channel=${params.channel} textLen=${(params.payload.text ?? "").length} ttsAuto=${params.ttsAuto ?? "unset"}`,
+    },
+    "tts-debug",
+  );
+
   if (autoMode === "off") {
     return params.payload;
   }
@@ -1538,6 +1559,14 @@ export async function maybeApplyTtsToPayload(params: {
       }
     }
   }
+
+  // Temporary debug trace
+  getLogger().debug(
+    {
+      message: `TTS:calling textToSpeech provider=${config.provider} voiceId=${config.elevenlabs.voiceId} modelId=${config.elevenlabs.modelId} textLen=${textForAudio.length}`,
+    },
+    "tts-debug",
+  );
 
   const ttsStart = Date.now();
   const result = await textToSpeech({

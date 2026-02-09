@@ -47,12 +47,12 @@ describe("parseProofreadResponse", () => {
     expect(result.changes).toEqual([]);
   });
 
-  it("falls back to raw text on parse failure", () => {
+  it("returns original text unchanged on parse failure", () => {
     const result = parseProofreadResponse("not json at all", "original text");
-    expect(result.corrected_voice).toBe("not json at all");
-    expect(result.unchanged).toBe(false);
-    expect(result.changes).toHaveLength(1);
-    expect(result.changes[0]).toContain("could not parse");
+    expect(result.corrected_voice).toBe("original text");
+    expect(result.corrected_text).toBe("original text");
+    expect(result.unchanged).toBe(true);
+    expect(result.error).toContain("JSON parse failed");
   });
 
   it("uses corrected field as fallback for corrected_voice", () => {
@@ -85,8 +85,23 @@ describe("stripCodeFences", () => {
     expect(stripCodeFences('```json\n{"a":1}\n```')).toBe('{"a":1}');
   });
 
+  it("strips code fences with preamble text", () => {
+    const raw = 'Here is the corrected text:\n```json\n{"a":1}\n```';
+    expect(stripCodeFences(raw)).toBe('{"a":1}');
+  });
+
   it("returns text unchanged without fences", () => {
     expect(stripCodeFences('{"a":1}')).toBe('{"a":1}');
+  });
+});
+
+describe("parseProofreadResponse — trailing commas", () => {
+  it("parses JSON with trailing commas", () => {
+    const raw =
+      '{"corrected_text":"ok","corrected_voice":"ok","changes":["fix",],"unchanged":false,}';
+    const result = parseProofreadResponse(raw, "original");
+    expect(result.corrected_text).toBe("ok");
+    expect(result.unchanged).toBe(false);
   });
 });
 

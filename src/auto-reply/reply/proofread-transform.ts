@@ -6,6 +6,7 @@ import { getApiKeyForModel, requireApiKey } from "../../agents/model-auth.js";
 import { ensureOpenClawModelsJson } from "../../agents/models-config.js";
 import { discoverAuthStorage, discoverModels } from "../../agents/pi-model-discovery.js";
 import { logVerbose } from "../../globals.js";
+import { getLogger } from "../../logging/logger.js";
 
 // ── Shared constants & types ────────────────────────────────────────────────
 
@@ -67,6 +68,13 @@ export function stripEmotionTags(text: string): string {
 
 export function stripCodeFences(text: string): string {
   let s = text.trim();
+  // Strip code fences that may appear anywhere (not just at the start) —
+  // LLMs sometimes prepend preamble text like "Here is the corrected text:"
+  const fenceMatch = s.match(/```(?:json|JSON)?\s*\n([\s\S]*?)```/);
+  if (fenceMatch) {
+    return fenceMatch[1].trim();
+  }
+  // Also handle fences at the very start (no preamble).
   const openMatch = s.match(/^```(?:json|JSON)?\s*\n?/);
   if (openMatch) {
     s = s.slice(openMatch[0].length);
@@ -77,12 +85,29 @@ export function stripCodeFences(text: string): string {
   return s;
 }
 
+/** Remove trailing commas before } or ] — common LLM JSON mistake. */
+function fixTrailingCommas(json: string): string {
+  return json.replace(/,\s*([}\]])/g, "$1");
+}
+
 export function parseProofreadResponse(raw: string, originalText: string): ProofreadResult {
   const stripped = stripCodeFences(raw);
+  // Try to extract a JSON object — greedy match from first { to last }.
   const jsonMatch = stripped.match(/(\{[\s\S]*\})/);
   const jsonStr = jsonMatch?.[1]?.trim() ?? stripped.trim();
-  try {
-    const parsed = JSON.parse(jsonStr);
+
+  // Try strict parse first, then with trailing-comma fix.
+  let parsed: Record<string, unknown> | undefined;
+  for (const candidate of [jsonStr, fixTrailingCommas(jsonStr)]) {
+    try {
+      parsed = JSON.parse(candidate);
+      break;
+    } catch {
+      // try next candidate
+    }
+  }
+
+  if (parsed) {
     const correctedVoice =
       typeof parsed.corrected_voice === "string"
         ? parsed.corrected_voice
@@ -101,15 +126,16 @@ export function parseProofreadResponse(raw: string, originalText: string): Proof
         : [],
       unchanged: parsed.unchanged === true,
     };
-  } catch {
-    const cleaned = raw.trim() || originalText;
-    return {
-      corrected_text: stripEmotionTags(cleaned),
-      corrected_voice: cleaned,
-      changes: ["(could not parse structured response — raw correction returned)"],
-      unchanged: false,
-    };
   }
+
+  // Parse failed — return original text unchanged so we never leak raw JSON to users.
+  return {
+    corrected_text: stripEmotionTags(originalText),
+    corrected_voice: originalText,
+    changes: [],
+    unchanged: true,
+    error: `JSON parse failed (raw ${raw.length} chars, stripped ${stripped.length} chars)`,
+  };
 }
 
 export function buildUserMessage(params: {
@@ -172,7 +198,9 @@ export async function proofreadText(params: {
   const authStorage = discoverAuthStorage(params.agentDir);
   const modelRegistry = discoverModels(authStorage, params.agentDir);
 
-  const [provider, model] = modelId.split("/", 2);
+  const slash = modelId.indexOf("/");
+  const provider = slash >= 0 ? modelId.slice(0, slash) : modelId;
+  const model = slash >= 0 ? modelId.slice(slash + 1) : modelId;
   const resolved = modelRegistry.find(provider, model) as Model<Api> | null;
   if (!resolved) {
     return {
@@ -209,10 +237,16 @@ export async function proofreadText(params: {
     ],
   };
 
-  const message = await complete(resolved, piContext, {
+  let message = await complete(resolved, piContext, {
     apiKey,
     maxTokens: 2048,
   });
+
+  // Single retry on 429 rate-limit errors after a short back-off.
+  if (message.stopReason === "error" && message.errorMessage?.includes("429")) {
+    await new Promise((r) => setTimeout(r, 2000));
+    message = await complete(resolved, piContext, { apiKey, maxTokens: 2048 });
+  }
 
   if (message.stopReason === "error") {
     return {
@@ -240,6 +274,9 @@ export async function proofreadText(params: {
     };
   }
 
+  logVerbose(
+    `[proofread] raw response (${responseText.length} chars): ${responseText.slice(0, 500)}`,
+  );
   return parseProofreadResponse(responseText, params.text);
 }
 
@@ -276,10 +313,12 @@ export async function maybeProofreadPayload(params: {
   }
 
   try {
-    logVerbose(
-      `proofread-transform: proofreading ${text.length} chars via ${proofCfg.model || DEFAULT_PROOFREAD_MODEL}`,
+    const log = getLogger();
+    log.info(
+      `[proofread] starting: ${text.length} chars via ${proofCfg.model || DEFAULT_PROOFREAD_MODEL}`,
     );
 
+    const t0 = Date.now();
     const result = await proofreadText({
       text,
       cfg: params.cfg,
@@ -290,24 +329,26 @@ export async function maybeProofreadPayload(params: {
       addresseeName: proofCfg.addressee?.name,
       addresseeGender: proofCfg.addressee?.gender,
     });
+    const elapsed = Date.now() - t0;
 
     if (result.error) {
-      logVerbose(`proofread-transform: error — ${result.error}`);
+      log.warn(`[proofread] error (${elapsed}ms): ${result.error}`);
       return params.payload;
     }
 
     if (result.unchanged) {
-      logVerbose("proofread-transform: text unchanged");
+      log.info(`[proofread] unchanged (${elapsed}ms)`);
       return params.payload;
     }
 
-    logVerbose(`proofread-transform: corrected (${result.changes.length} changes)`);
+    log.info(`[proofread] corrected (${elapsed}ms, ${result.changes.length} changes)`);
+    logVerbose(`[proofread] changes: ${result.changes.join("; ")}`);
 
     // Embed corrected_voice as [[tts:text]] directive so parseTtsDirectives() picks it up for TTS.
     const combined = `${result.corrected_text}\n[[tts:text]]${result.corrected_voice}[[/tts:text]]`;
     return { ...params.payload, text: combined };
   } catch (err) {
-    logVerbose(`proofread-transform: failed — ${err instanceof Error ? err.message : String(err)}`);
+    getLogger().warn(`[proofread] failed: ${err instanceof Error ? err.message : String(err)}`);
     return params.payload;
   }
 }
