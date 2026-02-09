@@ -105,6 +105,80 @@ describe("parseProofreadResponse — trailing commas", () => {
   });
 });
 
+describe("parseProofreadResponse — literal newlines in strings", () => {
+  it("repairs literal newlines inside corrected_voice (primary failure pattern)", () => {
+    // Sonnet breaks lines at [emotion] tag boundaries instead of using \n escapes
+    const raw = `{
+  "corrected_text": "Przysuwam się blisko. Mówię ci do ucha.",
+  "corrected_voice": "[whispers] Przysuwam się tak blisko.\n[soft] Mówię ci do ucha niskim głosem.",
+  "changes": ["word order"],
+  "unchanged": false
+}`;
+    const result = parseProofreadResponse(raw, "original");
+    expect(result.error).toBeUndefined();
+    expect(result.corrected_voice).toBe(
+      "[whispers] Przysuwam się tak blisko.\n[soft] Mówię ci do ucha niskim głosem.",
+    );
+    expect(result.corrected_text).toBe("Przysuwam się blisko. Mówię ci do ucha.");
+    expect(result.unchanged).toBe(false);
+  });
+
+  it("handles code fence wrapping + literal newlines combo", () => {
+    const raw = `\`\`\`json
+{
+  "corrected_text": "Tekst poprawiony.",
+  "corrected_voice": "[gentle] Tekst\npoprawiony.",
+  "changes": [],
+  "unchanged": true
+}
+\`\`\``;
+    const result = parseProofreadResponse(raw, "original");
+    expect(result.error).toBeUndefined();
+    expect(result.corrected_voice).toBe("[gentle] Tekst\npoprawiony.");
+    expect(result.unchanged).toBe(true);
+  });
+
+  it("handles multi-paragraph text with emotion tags at line starts", () => {
+    const raw = `{
+  "corrected_text": "Pierwszy akapit. Drugi akapit. Trzeci akapit.",
+  "corrected_voice": "[whispers] Pierwszy akapit.\n[playful] Drugi akapit.\n[soft] Trzeci akapit.",
+  "changes": ["gender fix"],
+  "unchanged": false
+}`;
+    const result = parseProofreadResponse(raw, "original");
+    expect(result.error).toBeUndefined();
+    expect(result.corrected_voice).toBe(
+      "[whispers] Pierwszy akapit.\n[playful] Drugi akapit.\n[soft] Trzeci akapit.",
+    );
+  });
+
+  it("handles both trailing commas AND literal newlines", () => {
+    const raw = `{
+  "corrected_text": "Poprawiony tekst.",
+  "corrected_voice": "[soft] Linia pierwsza.\n[whispers] Linia druga.",
+  "changes": ["fix",],
+  "unchanged": false,
+}`;
+    const result = parseProofreadResponse(raw, "original");
+    expect(result.error).toBeUndefined();
+    expect(result.corrected_text).toBe("Poprawiony tekst.");
+    expect(result.corrected_voice).toBe("[soft] Linia pierwsza.\n[whispers] Linia druga.");
+  });
+
+  it("does not mangle already-escaped newlines", () => {
+    // Well-formed JSON with proper \n escapes should pass through unchanged
+    const raw = JSON.stringify({
+      corrected_text: "ok",
+      corrected_voice: "[soft] Line one.\n[whispers] Line two.",
+      changes: [],
+      unchanged: false,
+    });
+    const result = parseProofreadResponse(raw, "original");
+    expect(result.error).toBeUndefined();
+    expect(result.corrected_voice).toBe("[soft] Line one.\n[whispers] Line two.");
+  });
+});
+
 // ── buildUserMessage ────────────────────────────────────────────────────────
 
 describe("buildUserMessage", () => {

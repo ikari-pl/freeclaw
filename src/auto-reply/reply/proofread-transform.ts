@@ -90,15 +90,62 @@ function fixTrailingCommas(json: string): string {
   return json.replace(/,\s*([}\]])/g, "$1");
 }
 
+/**
+ * Escape literal newlines/carriage-returns that appear inside JSON string values.
+ * LLMs (especially Sonnet) often emit raw line breaks inside quoted strings
+ * instead of proper `\n` escapes — e.g. when corrected_voice contains multi-
+ * paragraph text with [emotion] tags. This walks the string tracking whether
+ * we're inside a quoted value and only escapes newlines there, leaving
+ * structural JSON whitespace untouched.
+ */
+function repairJsonNewlines(json: string): string {
+  let result = "";
+  let inString = false;
+  let escaped = false;
+  for (let i = 0; i < json.length; i++) {
+    const ch = json[i];
+    if (escaped) {
+      result += ch;
+      escaped = false;
+      continue;
+    }
+    if (ch === "\\") {
+      result += ch;
+      escaped = true;
+      continue;
+    }
+    if (ch === '"') {
+      inString = !inString;
+      result += ch;
+      continue;
+    }
+    if (inString && ch === "\n") {
+      result += "\\n";
+      continue;
+    }
+    if (inString && ch === "\r") {
+      result += "\\r";
+      continue;
+    }
+    result += ch;
+  }
+  return result;
+}
+
 export function parseProofreadResponse(raw: string, originalText: string): ProofreadResult {
   const stripped = stripCodeFences(raw);
   // Try to extract a JSON object — greedy match from first { to last }.
   const jsonMatch = stripped.match(/(\{[\s\S]*\})/);
   const jsonStr = jsonMatch?.[1]?.trim() ?? stripped.trim();
 
-  // Try strict parse first, then with trailing-comma fix.
+  // Try strict parse first, then progressively more aggressive repairs.
   let parsed: Record<string, unknown> | undefined;
-  for (const candidate of [jsonStr, fixTrailingCommas(jsonStr)]) {
+  for (const candidate of [
+    jsonStr,
+    fixTrailingCommas(jsonStr),
+    repairJsonNewlines(jsonStr),
+    repairJsonNewlines(fixTrailingCommas(jsonStr)),
+  ]) {
     try {
       parsed = JSON.parse(candidate);
       break;
