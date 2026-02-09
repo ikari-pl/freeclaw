@@ -1,0 +1,10 @@
+{
+  "id": "proofread",
+  "name": "Proofread",
+  "description": "Polish-language proofreading tool for OpenClaw agents — fixes grammar, gender, phrasing.",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}
