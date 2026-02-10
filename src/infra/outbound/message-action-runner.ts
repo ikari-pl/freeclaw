@@ -16,11 +16,14 @@ import {
   readStringArrayParam,
   readStringParam,
 } from "../../agents/tools/common.js";
+import { stripTtsDirectivesForDisplay } from "../../auto-reply/reply/proofread-transform.js";
 import { parseReplyDirectives } from "../../auto-reply/reply/reply-directives.js";
 import { dispatchChannelMessageAction } from "../../channels/plugins/message-actions.js";
+import { getLogger } from "../../logging/logger.js";
 import { extensionForMime } from "../../media/mime.js";
 import { parseSlackTarget } from "../../slack/targets.js";
 import { parseTelegramTarget } from "../../telegram/targets.js";
+import { maybeApplyTtsToPayload } from "../../tts/tts.js";
 import {
   isDeliverableMessageChannel,
   normalizeMessageChannel,
@@ -790,6 +793,14 @@ async function handleSendAction(ctx: ResolvedActionContext): Promise<MessageActi
   mergedMediaUrls.push(...normalizedMediaUrls);
 
   message = parsed.text;
+  // Strip [[tts:text]] directives so they don't leak to the user.
+  // Preserve original for TTS generation after the text is sent.
+  const messageWithTtsDirectives = message;
+  const strippedPayload = stripTtsDirectivesForDisplay({ text: message });
+  const hadTtsDirective = strippedPayload.text !== message;
+  if (hadTtsDirective) {
+    message = strippedPayload.text ?? message;
+  }
   params.message = message;
   if (!params.replyTo && parsed.replyToId) {
     params.replyTo = parsed.replyToId;
@@ -886,6 +897,40 @@ async function handleSendAction(ctx: ResolvedActionContext): Promise<MessageActi
     gifPlayback,
     bestEffort: bestEffort ?? undefined,
   });
+
+  // Deferred TTS: generate voice audio from [[tts:text]] directive content.
+  if (hadTtsDirective && !dryRun) {
+    try {
+      const ttsResult = await maybeApplyTtsToPayload({
+        payload: { text: messageWithTtsDirectives },
+        cfg,
+        channel,
+        kind: "final",
+      });
+      if (ttsResult.mediaUrl) {
+        await executeSendAction({
+          ctx: {
+            cfg,
+            channel,
+            params: { to, message: "", media: ttsResult.mediaUrl },
+            accountId: accountId ?? undefined,
+            gateway,
+            toolContext: input.toolContext,
+            deps: input.deps,
+            dryRun,
+            abortSignal,
+          },
+          to,
+          message: "",
+          mediaUrl: ttsResult.mediaUrl,
+        });
+      }
+    } catch (err) {
+      getLogger().warn(
+        `[message/tts] deferred TTS failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
 
   return {
     kind: "send",
