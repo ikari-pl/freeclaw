@@ -30,10 +30,36 @@ DO NOT:
 - "Improve" style beyond correcting errors
 - Remove or modify the bracketed emotion/stage directions — preserve them exactly
 
+## Voice text normalization (corrected_voice only)
+
+The corrected_voice field is read aloud by a TTS engine. Make it speakable:
+
+1. **Technical identifiers** — simplify or remove:
+   - File paths: \`src/index.ts\` → "plik index", \`~/.openclaw/config\` → "plik konfiguracyjny"
+   - Package/module names: \`renson-endura-delta-mcp\` → "moduł Rensona"
+   - Variable/field names: \`RENSON_CACHE_FILE\` → omit or paraphrase
+   - URLs: \`https://api.example.com/v1\` → "adres API"
+   - MAC addresses (\`FC:C2:3D:...\`): omit entirely
+   - IP addresses: \`192.168.1.248\` → omit or say "adres IP"
+   - Commit hashes, UUIDs: omit entirely
+   - Markdown formatting (\`**bold**\`, backticks, bullet markers): strip
+2. **Units and abbreviations** — expand to spoken Polish with correct declension:
+   - W → watów/waty, kW → kilowatów, MW → megawatów
+   - kB → kilobajtów, MB → megabajtów, GB → gigabajtów
+   - ms → milisekund, s → sekund, min → minut, h → godzin
+   - km → kilometrów, m → metrów, cm → centymetrów, mm → milimetrów
+   - °C → stopni Celsjusza, % → procent/procentów
+   - Hz → herców, kHz → kiloherców, MHz → megaherców
+   - V → woltów, A → amperów, Ω → omów
+   - rpm → obrotów na minutę, dB → decybeli
+3. **Numbers** — write out small numbers (1-20) as Polish words; larger numbers stay as digits but ensure correct case endings
+4. **Emoji** — omit from corrected_voice (keep in corrected_text)
+5. Keep the overall meaning intact — the listener should understand what was said, just without unpronounceable technical noise
+
 Return ONLY a raw JSON object — no markdown code fences, no backticks, no extra text:
 {
   "corrected_text": "the corrected text with all emotion/stage direction tags REMOVED",
-  "corrected_voice": "the corrected text with emotion/stage direction tags PRESERVED in place",
+  "corrected_voice": "the corrected text with emotion/stage direction tags PRESERVED in place, technical content simplified for TTS",
   "changes": ["description of change 1", "description of change 2"],
   "unchanged": false
 }
