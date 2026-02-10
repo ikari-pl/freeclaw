@@ -40,7 +40,7 @@ The corrected_voice field is read aloud by a TTS engine. Make it speakable:
    - Variable/field names: \`RENSON_CACHE_FILE\` → omit or paraphrase
    - URLs: \`https://api.example.com/v1\` → "adres API"
    - MAC addresses (\`FC:C2:3D:...\`): omit entirely
-   - IP addresses: \`192.168.1.248\` → omit or say "adres IP"
+   - IP addresses: read digits without dots, slash notation as "maska": \`192.168.1.248\` → "192 168 1 248", \`10.0.0.0/24\` → "10 0 0 0 maska 24". Omit if the IP is not important to the listener.
    - Commit hashes, UUIDs: omit entirely
    - Markdown formatting (\`**bold**\`, backticks, bullet markers): strip
 2. **Units and abbreviations** — expand to spoken Polish with correct declension:
