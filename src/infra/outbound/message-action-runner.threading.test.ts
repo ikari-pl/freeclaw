@@ -131,7 +131,7 @@ describe("runMessageAction threading auto-injection", () => {
     expect(call?.ctx?.mirror?.sessionKey).toBe("agent:main:slack:channel:c123:thread:333.444");
   });
 
-  it("auto-injects telegram threadId from toolContext when omitted", async () => {
+  it("auto-injects telegram threadId for forum topic targets", async () => {
     mocks.executeSendAction.mockResolvedValue({
       handledBy: "plugin",
       payload: {},
@@ -142,11 +142,11 @@ describe("runMessageAction threading auto-injection", () => {
       action: "send",
       params: {
         channel: "telegram",
-        target: "telegram:123",
+        target: "telegram:-1001234",
         message: "hi",
       },
       toolContext: {
-        currentChannelId: "telegram:123",
+        currentChannelId: "telegram:group:-1001234:topic:42",
         currentThreadTs: "42",
       },
       agentId: "main",
@@ -156,6 +156,36 @@ describe("runMessageAction threading auto-injection", () => {
       ctx?: { params?: Record<string, unknown> };
     };
     expect(call?.ctx?.params?.threadId).toBe("42");
+  });
+
+  it("skips telegram auto-threading for DM targets (not forum)", async () => {
+    mocks.executeSendAction.mockResolvedValue({
+      handledBy: "plugin",
+      payload: {},
+    });
+
+    // DM channel IDs like "telegram:569397947" have no :topic: — currentThreadTs
+    // is a reply-chain message_id, not a forum topic. Auto-injecting it causes
+    // Telegram "message thread not found" errors.
+    await runMessageAction({
+      cfg: telegramConfig,
+      action: "send",
+      params: {
+        channel: "telegram",
+        target: "telegram:569397947",
+        message: "hi",
+      },
+      toolContext: {
+        currentChannelId: "telegram:569397947",
+        currentThreadTs: "4221",
+      },
+      agentId: "main",
+    });
+
+    const call = mocks.executeSendAction.mock.calls[0]?.[0] as {
+      ctx?: { params?: Record<string, unknown> };
+    };
+    expect(call?.ctx?.params?.threadId).toBeUndefined();
   });
 
   it("skips telegram auto-threading when target chat differs", async () => {
@@ -173,7 +203,7 @@ describe("runMessageAction threading auto-injection", () => {
         message: "hi",
       },
       toolContext: {
-        currentChannelId: "telegram:123",
+        currentChannelId: "telegram:group:123:topic:42",
         currentThreadTs: "42",
       },
       agentId: "main",
@@ -185,7 +215,7 @@ describe("runMessageAction threading auto-injection", () => {
     expect(call?.ctx?.params?.threadId).toBeUndefined();
   });
 
-  it("matches telegram target with internal prefix variations", async () => {
+  it("matches telegram forum target with internal prefix variations", async () => {
     mocks.executeSendAction.mockResolvedValue({
       handledBy: "plugin",
       payload: {},
@@ -196,11 +226,11 @@ describe("runMessageAction threading auto-injection", () => {
       action: "send",
       params: {
         channel: "telegram",
-        target: "telegram:group:123",
+        target: "telegram:group:-1001234",
         message: "hi",
       },
       toolContext: {
-        currentChannelId: "telegram:123",
+        currentChannelId: "telegram:-1001234:topic:42",
         currentThreadTs: "42",
       },
       agentId: "main",

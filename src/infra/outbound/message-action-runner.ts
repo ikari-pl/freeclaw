@@ -274,6 +274,13 @@ function resolveTelegramAutoThreadId(params: {
   if (parsedTo.chatId.toLowerCase() !== parsedChannel.chatId.toLowerCase()) {
     return undefined;
   }
+  // Only auto-inject for forum topics. In DMs, currentThreadTs is a message_id
+  // from reply threading — passing it as message_thread_id causes Telegram to
+  // reject with "message thread not found". Forum targets have :topic: in the
+  // channel ID, so parseTelegramTarget returns a messageThreadId for those.
+  if (!parsedChannel.messageThreadId) {
+    return undefined;
+  }
   return context.currentThreadTs;
 }
 
