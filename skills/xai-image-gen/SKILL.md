@@ -55,6 +55,21 @@ python3 {baseDir}/scripts/generate.py --model grok-imagine-image-pro --prompt ".
 python3 {baseDir}/scripts/generate.py --model grok-2-image-1212 --prompt "..."
 ```
 
+Multi-step editing
+
+Chain edits by passing the previous output as `-i` for the next call. Keep track of the latest output path.
+
+```bash
+# Step 1: generate
+python3 {baseDir}/scripts/generate.py --prompt "a cat sitting on a windowsill" --filename "cat.png"
+# Step 2: user says "add rain outside" — edit the previous output
+python3 {baseDir}/scripts/generate.py --prompt "add rain outside the window" --filename "cat-rain.png" -i "/tmp/cat.png"
+# Step 3: user says "make it night time" — edit again
+python3 {baseDir}/scripts/generate.py --prompt "change to night time, dark sky" --filename "cat-rain-night.png" -i "/tmp/cat-rain.png"
+```
+
+When the user asks to modify the last generated image, always use `-i` with the most recent output path. Do not regenerate from scratch unless asked.
+
 Aspect ratios: `1:1` (default), `16:9`, `9:16`, `4:3`, `3:4`, `3:2`, `2:3`, `2:1`, `1:2`.
 
 ```bash
