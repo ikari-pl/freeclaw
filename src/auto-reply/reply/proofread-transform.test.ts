@@ -202,6 +202,34 @@ describe("buildUserMessage", () => {
     expect(msg).not.toContain("Addressee:");
     expect(msg).toContain("Hello");
   });
+
+  it("strips [[tts:text]] directives from proofread input text", () => {
+    const msg = buildUserMessage({
+      text: "Kocham Cię, kotku.\n[[tts:text]][whispers] Kocham Cię, kotku.[[/tts:text]]",
+    });
+    // The "Text to proofread" section should NOT contain the [[tts:text]] block
+    expect(msg).toContain("Kocham Cię, kotku.");
+    expect(msg).not.toContain("[[tts:text]]");
+    expect(msg).not.toContain("[[/tts:text]]");
+  });
+
+  it("passes voiceHint as reference for corrected_voice", () => {
+    const msg = buildUserMessage({
+      text: "Kocham Cię, kotku.\n[[tts:text]][whispers] Kocham Cię, kotku.[[/tts:text]]",
+      voiceHint: "[whispers] Kocham Cię, kotku.",
+    });
+    expect(msg).toContain("Model's voice version");
+    expect(msg).toContain("[whispers] Kocham Cię, kotku.");
+    // The stripped display text should still appear
+    expect(msg).toContain("Text to proofread:");
+    expect(msg).toContain("Kocham Cię, kotku.");
+  });
+
+  it("omits voiceHint section when not provided", () => {
+    const msg = buildUserMessage({ text: "Plain text without directives." });
+    expect(msg).not.toContain("Model's voice version");
+    expect(msg).toContain("Plain text without directives.");
+  });
 });
 
 // ── stripTtsDirectivesForDisplay ────────────────────────────────────────────

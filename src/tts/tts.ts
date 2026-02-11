@@ -612,14 +612,23 @@ function parseTtsDirectives(
   let cleanedText = text;
   let hasDirective = false;
 
+  // Collect ALL [[tts:text]] blocks and concatenate — when deferred TTS joins
+  // 2+ reply blocks, each with its own directive, only the first was captured before.
   const blockRegex = /\[\[tts:text\]\]([\s\S]*?)\[\[\/tts:text\]\]/gi;
+  const ttsTextParts: string[] = [];
   cleanedText = cleanedText.replace(blockRegex, (_match, inner: string) => {
     hasDirective = true;
-    if (policy.allowText && overrides.ttsText == null) {
-      overrides.ttsText = inner.trim();
+    if (policy.allowText) {
+      const trimmed = inner.trim();
+      if (trimmed) {
+        ttsTextParts.push(trimmed);
+      }
     }
     return "";
   });
+  if (ttsTextParts.length > 0) {
+    overrides.ttsText = ttsTextParts.join("\n\n");
+  }
 
   const directiveRegex = /\[\[tts:([^\]]+)\]\]/gi;
   cleanedText = cleanedText.replace(directiveRegex, (_match, body: string) => {

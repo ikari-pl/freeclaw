@@ -208,6 +208,27 @@ describe("tts", () => {
       expect(result.cleanedText).toBe(input);
       expect(result.overrides.provider).toBeUndefined();
     });
+
+    it("concatenates multiple [[tts:text]] blocks", () => {
+      const policy = resolveModelOverridePolicy({ enabled: true });
+      const input =
+        "Block one.\n[[tts:text]][whispers] First voice.[[/tts:text]]\n\n" +
+        "Block two.\n[[tts:text]][playful] Second voice.[[/tts:text]]";
+      const result = parseTtsDirectives(input, policy);
+
+      expect(result.ttsText).toBe("[whispers] First voice.\n\n[playful] Second voice.");
+      expect(result.cleanedText).not.toContain("[[tts:text]]");
+      expect(result.hasDirective).toBe(true);
+    });
+
+    it("captures single [[tts:text]] block as before", () => {
+      const policy = resolveModelOverridePolicy({ enabled: true });
+      const input = "Display text.\n[[tts:text]]Voice content here.[[/tts:text]]";
+      const result = parseTtsDirectives(input, policy);
+
+      expect(result.ttsText).toBe("Voice content here.");
+      expect(result.cleanedText.trim()).toBe("Display text.");
+    });
   });
 
   describe("summarizeText", () => {

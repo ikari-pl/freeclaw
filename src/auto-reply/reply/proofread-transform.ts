@@ -42,7 +42,12 @@ The corrected_voice field is read aloud by a TTS engine. Make it speakable:
    - MAC addresses (\`FC:C2:3D:...\`): omit entirely
    - IP addresses: read digits without dots, slash notation as "maska": \`192.168.1.248\` → "192 168 1 248", \`10.0.0.0/24\` → "10 0 0 0 maska 24". Omit if the IP is not important to the listener.
    - Commit hashes, UUIDs: omit entirely
-   - Markdown formatting (\`**bold**\`, backticks, bullet markers): strip
+   - Markdown formatting: strip backticks, bullet markers, header markers (#).
+     For **bold** and *italic* text: remove the asterisks but KEEP the content as spoken text.
+6. **Roleplay actions** (text in *single asterisks*) — these describe physical actions, gestures,
+   or expressions (e.g., *całuję Cię delikatnie*, *uśmiecha się*). Include them in corrected_voice
+   as spoken narration without the asterisks. Voice them distinctively — wrap in a [softly] or
+   [narrating] tag if appropriate. Do NOT strip them from corrected_voice.
 2. **Units and abbreviations** — expand to spoken Polish with correct declension:
    - W → watów/waty, kW → kilowatów, MW → megawatów
    - kB → kilobajtów, MB → megabajtów, GB → gigabajtów
@@ -213,6 +218,7 @@ export function parseProofreadResponse(raw: string, originalText: string): Proof
 
 export function buildUserMessage(params: {
   text: string;
+  voiceHint?: string;
   context?: string;
   speakerName?: string;
   speakerGender?: string;
@@ -247,9 +253,20 @@ export function buildUserMessage(params: {
     lines.push(`Addressee: ${addresseeParts.join(", ")}`);
   }
 
+  // Strip [[tts:text]] directives from display text — Sonnet doesn't understand them
+  // as markup and would include their content in corrected_text, causing a text leak.
+  const cleanText = params.text.replace(/\[\[tts:text\]\][\s\S]*?\[\[\/tts:text\]\]/gi, "").trim();
   lines.push("");
   lines.push("Text to proofread:");
-  lines.push(params.text);
+  lines.push(cleanText);
+
+  if (params.voiceHint) {
+    lines.push("");
+    lines.push(
+      "Model's voice version (use as reference for corrected_voice — preserve style tags like [whispers], [short pause]):",
+    );
+    lines.push(params.voiceHint);
+  }
   return lines.join("\n");
 }
 
@@ -293,6 +310,10 @@ export async function proofreadText(params: {
   const apiKey = requireApiKey(apiKeyInfo, resolved.provider);
   authStorage.setRuntimeApiKey(resolved.provider, apiKey);
 
+  // Extract [[tts:text]] voice hint from model output before sending to Sonnet.
+  const voiceBlockMatch = params.text.match(/\[\[tts:text\]\]([\s\S]*?)\[\[\/tts:text\]\]/i);
+  const voiceHint = voiceBlockMatch?.[1]?.trim() || undefined;
+
   const piContext: Context = {
     systemPrompt: SYSTEM_PROMPT,
     messages: [
@@ -300,6 +321,7 @@ export async function proofreadText(params: {
         role: "user",
         content: buildUserMessage({
           text: params.text,
+          voiceHint,
           speakerName: params.speakerName,
           speakerGender: params.speakerGender,
           addresseeName: params.addresseeName,
