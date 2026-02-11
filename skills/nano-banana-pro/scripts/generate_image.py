@@ -137,6 +137,15 @@ def main():
             )
         )
 
+        # Guard against None parts (Gemini returns parts=None on safety blocks)
+        if not response.parts:
+            reason = getattr(getattr(response, 'prompt_feedback', None), 'block_reason', None)
+            candidates = getattr(response, 'candidates', None)
+            finish = getattr(candidates[0], 'finish_reason', None) if candidates else None
+            detail = reason or finish or "unknown"
+            print(f"Error: Gemini returned no content (likely safety filter, reason: {detail}). Try a different prompt.", file=sys.stderr)
+            sys.exit(1)
+
         # Process response and convert to PNG
         image_saved = False
         for part in response.parts:
