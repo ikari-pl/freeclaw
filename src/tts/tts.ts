@@ -1466,12 +1466,8 @@ export async function maybeApplyTtsToPayload(params: {
     sessionAuto: params.ttsAuto,
   });
 
-  // Temporary debug trace — uses file logger directly to bypass verbose gating
-  getLogger().debug(
-    {
-      message: `TTS:maybeApply autoMode=${autoMode} kind=${params.kind} channel=${params.channel} textLen=${(params.payload.text ?? "").length} ttsAuto=${params.ttsAuto ?? "unset"}`,
-    },
-    "tts-debug",
+  getLogger().info(
+    `[tts] maybeApply autoMode=${autoMode} kind=${params.kind} channel=${params.channel} textLen=${(params.payload.text ?? "").length} ttsAuto=${params.ttsAuto ?? "unset"}`,
   );
 
   if (autoMode === "off") {
@@ -1560,12 +1556,8 @@ export async function maybeApplyTtsToPayload(params: {
     }
   }
 
-  // Temporary debug trace
-  getLogger().debug(
-    {
-      message: `TTS:calling textToSpeech provider=${config.provider} voiceId=${config.elevenlabs.voiceId} modelId=${config.elevenlabs.modelId} textLen=${textForAudio.length}`,
-    },
-    "tts-debug",
+  getLogger().info(
+    `[tts] calling textToSpeech provider=${config.provider} voiceId=${config.elevenlabs.voiceId} modelId=${config.elevenlabs.modelId} textLen=${textForAudio.length}`,
   );
 
   const ttsStart = Date.now();
@@ -1606,7 +1598,7 @@ export async function maybeApplyTtsToPayload(params: {
   };
 
   const latency = Date.now() - ttsStart;
-  logVerbose(`TTS: conversion failed after ${latency}ms (${result.error ?? "unknown"}).`);
+  getLogger().warn(`[tts] conversion failed after ${latency}ms (${result.error ?? "unknown"})`);
   return nextPayload;
 }
 

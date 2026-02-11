@@ -11,6 +11,7 @@ import {
   logMessageQueued,
   logSessionStateChange,
 } from "../../logging/diagnostic.js";
+import { getLogger } from "../../logging/logger.js";
 import { getGlobalHookRunner } from "../../plugins/hook-runner-global.js";
 import { maybeApplyTtsToPayload, normalizeTtsAutoMode, resolveTtsConfig } from "../../tts/tts.js";
 import { getReplyFromConfig } from "../reply.js";
@@ -390,6 +391,9 @@ export async function dispatchReplyFromConfig(params: {
       // For deferred TTS, accumulate full text (with directives) so TTS gets corrected_voice.
       if (isDeferred && proofreadReply.text?.trim()) {
         deferredTtsTexts.push(proofreadReply.text.trim());
+        getLogger().info(
+          `[tts/deferred] accumulated reply text (${proofreadReply.text.trim().length} chars, hasDirective=${proofreadReply.text.includes("[[tts:text]]")})`,
+        );
       }
 
       if (shouldRouteToOriginating && originatingChannel && originatingTo) {
@@ -418,9 +422,15 @@ export async function dispatchReplyFromConfig(params: {
     }
 
     // Deferred TTS: generate audio after text was already sent, then deliver audio-only.
+    getLogger().info(
+      `[tts/deferred] check: isDeferred=${isDeferred} deferredCount=${deferredTtsTexts.length} repliesLen=${replies.length} blockCount=${blockCount}`,
+    );
     if (isDeferred && deferredTtsTexts.length > 0) {
       try {
         const combinedText = deferredTtsTexts.join("\n\n");
+        getLogger().info(
+          `[tts/deferred] generating audio: combinedLen=${combinedText.length} channel=${ttsChannel} sessionTtsAuto=${sessionTtsAuto ?? "unset"}`,
+        );
         const ttsResult = await maybeApplyTtsToPayload({
           payload: { text: combinedText },
           cfg,
@@ -429,6 +439,9 @@ export async function dispatchReplyFromConfig(params: {
           inboundAudio,
           ttsAuto: sessionTtsAuto,
         });
+        getLogger().info(
+          `[tts/deferred] result: hasMediaUrl=${Boolean(ttsResult.mediaUrl)} hasText=${Boolean(ttsResult.text)}`,
+        );
         if (ttsResult.mediaUrl) {
           const ttsOnlyPayload: ReplyPayload = {
             mediaUrl: ttsResult.mediaUrl,
@@ -459,8 +472,8 @@ export async function dispatchReplyFromConfig(params: {
           }
         }
       } catch (err) {
-        logVerbose(
-          `dispatch-from-config: deferred TTS failed: ${err instanceof Error ? err.message : String(err)}`,
+        getLogger().warn(
+          `[tts/deferred] failed: ${err instanceof Error ? err.message : String(err)}`,
         );
       }
     }
