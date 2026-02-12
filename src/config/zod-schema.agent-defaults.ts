@@ -140,6 +140,7 @@ export const AgentDefaultsSchema = z
     maxConcurrent: z.number().int().positive().optional(),
     subagents: z
       .object({
+        allowAgents: z.array(z.string()).optional(),
         maxConcurrent: z.number().int().positive().optional(),
         archiveAfterMinutes: z.number().int().positive().optional(),
         model: z
