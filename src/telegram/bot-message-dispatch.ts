@@ -25,6 +25,7 @@ import { deliverReplies } from "./bot/delivery.js";
 import { resolveTelegramDraftStreamingChunking } from "./draft-chunking.js";
 import { createTelegramDraftStream } from "./draft-stream.js";
 import { cacheSticker, describeStickerImage } from "./sticker-cache.js";
+import { createToolUpdateTracker } from "./tool-update-tracker.js";
 
 const EMPTY_RESPONSE_FALLBACK = "No response generated. Please try again.";
 
@@ -251,12 +252,53 @@ export const dispatchTelegramMessage = async ({
     skippedNonSilent: 0,
   };
 
+  // Tool update tracker: edit-in-place for tool status messages (private chats only).
+  const toolUpdateTracker = isPrivateChat
+    ? createToolUpdateTracker({
+        bot,
+        chatId,
+        thread: threadSpec,
+        runtime,
+        textLimit,
+        tableMode,
+        linkPreview: telegramCfg.linkPreview,
+        deliverReplies: async (payload) => {
+          const result = await deliverReplies({
+            replies: [payload],
+            chatId: String(chatId),
+            token: opts.token,
+            runtime,
+            bot,
+            replyToMode,
+            textLimit,
+            thread: threadSpec,
+            tableMode,
+            chunkMode,
+            linkPreview: telegramCfg.linkPreview,
+          });
+          if (result.delivered) {
+            deliveryState.delivered = true;
+          }
+        },
+      })
+    : undefined;
+
   const { queuedFinal } = await dispatchReplyWithBufferedBlockDispatcher({
     ctx: ctxPayload,
     cfg,
     dispatcherOptions: {
       ...prefixOptions,
       deliver: async (payload, info) => {
+        // Tool updates: edit in place (private chats only).
+        if (info.kind === "tool" && toolUpdateTracker) {
+          await toolUpdateTracker.handleToolUpdate(payload);
+          deliveryState.delivered = true;
+          return;
+        }
+        // Final/block: clean up the tool status message first.
+        if ((info.kind === "final" || info.kind === "block") && toolUpdateTracker) {
+          await toolUpdateTracker.cleanup();
+        }
         if (info.kind === "final") {
           await flushDraft();
           draftStream?.stop();
@@ -308,6 +350,7 @@ export const dispatchTelegramMessage = async ({
     },
   });
   draftStream?.stop();
+  toolUpdateTracker?.stop();
   let sentFallback = false;
   if (!deliveryState.delivered && deliveryState.skippedNonSilent > 0) {
     const result = await deliverReplies({

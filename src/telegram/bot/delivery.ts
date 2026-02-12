@@ -501,7 +501,7 @@ function buildTelegramSendParams(opts?: {
   return params;
 }
 
-async function sendTelegramText(
+export async function sendTelegramText(
   bot: Bot,
   chatId: string,
   text: string,
