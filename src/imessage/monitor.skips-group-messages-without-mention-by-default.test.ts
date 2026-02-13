@@ -25,6 +25,15 @@ vi.mock("../auto-reply/reply.js", () => ({
   getReplyFromConfig: (...args: unknown[]) => replyMock(...args),
 }));
 
+// Prevent TTS prefs file from leaking into tests (see web prefixes-body test for details).
+vi.mock("../tts/tts.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../tts/tts.js")>();
+  return {
+    ...actual,
+    maybeApplyTtsToPayload: async (params: { payload: unknown }) => params.payload,
+  };
+});
+
 vi.mock("./send.js", () => ({
   sendMessageIMessage: (...args: unknown[]) => sendMock(...args),
 }));

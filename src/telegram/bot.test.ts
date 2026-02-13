@@ -164,6 +164,15 @@ vi.mock("../auto-reply/reply.js", () => {
   return { getReplyFromConfig: replySpy, __replySpy: replySpy };
 });
 
+// Prevent TTS prefs file from leaking into tests (see web prefixes-body test for details).
+vi.mock("../tts/tts.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../tts/tts.js")>();
+  return {
+    ...actual,
+    maybeApplyTtsToPayload: async (params: { payload: unknown }) => params.payload,
+  };
+});
+
 const getOnHandler = (event: string) => {
   const handler = onSpy.mock.calls.find((call) => call[0] === event)?.[1];
   if (!handler) {

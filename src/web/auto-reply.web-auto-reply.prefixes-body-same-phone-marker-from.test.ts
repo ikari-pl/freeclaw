@@ -13,6 +13,17 @@ vi.mock("../agents/pi-embedded.js", () => ({
   resolveEmbeddedSessionLane: (key: string) => `session:${key.trim() || "main"}`,
 }));
 
+// Prevent TTS prefs file (~/.openclaw/settings/tts.json) from leaking into tests.
+// When the prefs file has auto:"always", maybeApplyTtsToPayload generates real audio
+// and adds mediaUrl to the payload, causing reply assertions to fail.
+vi.mock("../tts/tts.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../tts/tts.js")>();
+  return {
+    ...actual,
+    maybeApplyTtsToPayload: async (params: { payload: unknown }) => params.payload,
+  };
+});
+
 import { resetInboundDedupe } from "../auto-reply/reply/inbound-dedupe.js";
 import { resetLogger, setLoggerOverride } from "../logging.js";
 import { HEARTBEAT_TOKEN, monitorWebChannel } from "./auto-reply.js";
