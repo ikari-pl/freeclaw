@@ -14,6 +14,15 @@ vi.mock("../web/media.js", () => ({
   loadWebMedia,
 }));
 
+// Prevent TTS prefs file from leaking into tests (see web prefixes-body test for details).
+vi.mock("../tts/tts.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../tts/tts.js")>();
+  return {
+    ...actual,
+    maybeApplyTtsToPayload: async (params: { payload: unknown }) => params.payload,
+  };
+});
+
 const { loadConfig } = vi.hoisted(() => ({
   loadConfig: vi.fn(() => ({})),
 }));

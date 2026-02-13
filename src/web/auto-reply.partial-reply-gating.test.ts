@@ -13,6 +13,15 @@ vi.mock("../agents/pi-embedded.js", () => ({
   resolveEmbeddedSessionLane: (key: string) => `session:${key.trim() || "main"}`,
 }));
 
+// Prevent TTS prefs file from leaking into tests (see prefixes-body test for details).
+vi.mock("../tts/tts.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../tts/tts.js")>();
+  return {
+    ...actual,
+    maybeApplyTtsToPayload: async (params: { payload: unknown }) => params.payload,
+  };
+});
+
 import type { OpenClawConfig } from "../config/config.js";
 import { runEmbeddedPiAgent } from "../agents/pi-embedded.js";
 import { getReplyFromConfig } from "../auto-reply/reply.js";
