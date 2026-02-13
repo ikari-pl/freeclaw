@@ -1,5 +1,5 @@
-import { requireApiKey, resolveApiKeyForProvider } from "../agents/model-auth.js";
 import type { EmbeddingProvider, EmbeddingProviderOptions } from "./embeddings.js";
+import { requireApiKey, resolveApiKeyForProvider } from "../agents/model-auth.js";
 
 export type VoyageEmbeddingClient = {
   baseUrl: string;
@@ -9,11 +9,20 @@ export type VoyageEmbeddingClient = {
 
 export const DEFAULT_VOYAGE_EMBEDDING_MODEL = "voyage-4-large";
 const DEFAULT_VOYAGE_BASE_URL = "https://api.voyageai.com/v1";
+const VOYAGE_MAX_INPUT_TOKENS: Record<string, number> = {
+  "voyage-3": 32000,
+  "voyage-3-lite": 16000,
+  "voyage-code-3": 32000,
+};
 
 export function normalizeVoyageModel(model: string): string {
   const trimmed = model.trim();
-  if (!trimmed) return DEFAULT_VOYAGE_EMBEDDING_MODEL;
-  if (trimmed.startsWith("voyage/")) return trimmed.slice("voyage/".length);
+  if (!trimmed) {
+    return DEFAULT_VOYAGE_EMBEDDING_MODEL;
+  }
+  if (trimmed.startsWith("voyage/")) {
+    return trimmed.slice("voyage/".length);
+  }
   return trimmed;
 }
 
@@ -23,12 +32,22 @@ export async function createVoyageEmbeddingProvider(
   const client = await resolveVoyageEmbeddingClient(options);
   const url = `${client.baseUrl.replace(/\/$/, "")}/embeddings`;
 
-  const embed = async (input: string[]): Promise<number[][]> => {
-    if (input.length === 0) return [];
+  const embed = async (input: string[], input_type?: "query" | "document"): Promise<number[][]> => {
+    if (input.length === 0) {
+      return [];
+    }
+    const body: { model: string; input: string[]; input_type?: "query" | "document" } = {
+      model: client.model,
+      input,
+    };
+    if (input_type) {
+      body.input_type = input_type;
+    }
+
     const res = await fetch(url, {
       method: "POST",
       headers: client.headers,
-      body: JSON.stringify({ model: client.model, input }),
+      body: JSON.stringify(body),
     });
     if (!res.ok) {
       const text = await res.text();
@@ -45,11 +64,12 @@ export async function createVoyageEmbeddingProvider(
     provider: {
       id: "voyage",
       model: client.model,
+      maxInputTokens: VOYAGE_MAX_INPUT_TOKENS[client.model],
       embedQuery: async (text) => {
-        const [vec] = await embed([text]);
+        const [vec] = await embed([text], "query");
         return vec ?? [];
       },
-      embedBatch: embed,
+      embedBatch: async (texts) => embed(texts, "document"),
     },
     client,
   };

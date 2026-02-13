@@ -423,7 +423,7 @@ describe("monitorSignalProvider tool results", () => {
       cfg: config as OpenClawConfig,
       channel: "signal",
       accountId: "default",
-      peer: { kind: "dm", id: normalizeE164("+15550001111") },
+      peer: { kind: "direct", id: normalizeE164("+15550001111") },
     });
     const events = peekSystemEvents(route.sessionKey);
     expect(events.some((text) => text.includes("Signal reaction added"))).toBe(true);
@@ -479,7 +479,7 @@ describe("monitorSignalProvider tool results", () => {
       cfg: config as OpenClawConfig,
       channel: "signal",
       accountId: "default",
-      peer: { kind: "dm", id: normalizeE164("+15550001111") },
+      peer: { kind: "direct", id: normalizeE164("+15550001111") },
     });
     const events = peekSystemEvents(route.sessionKey);
     expect(events.some((text) => text.includes("Signal reaction added"))).toBe(true);

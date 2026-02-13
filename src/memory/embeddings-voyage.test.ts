@@ -1,9 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import * as authModule from "../agents/model-auth.js";
+import { createVoyageEmbeddingProvider, normalizeVoyageModel } from "./embeddings-voyage.js";
 
 vi.mock("../agents/model-auth.js", () => ({
   resolveApiKeyForProvider: vi.fn(),
   requireApiKey: (auth: { apiKey?: string; mode?: string }, provider: string) => {
-    if (auth?.apiKey) return auth.apiKey;
+    if (auth?.apiKey) {
+      return auth.apiKey;
+    }
     throw new Error(`No API key resolved for provider "${provider}" (auth mode: ${auth?.mode}).`);
   },
 }));
@@ -18,16 +22,12 @@ const createFetchMock = () =>
 describe("voyage embedding provider", () => {
   afterEach(() => {
     vi.resetAllMocks();
-    vi.resetModules();
     vi.unstubAllGlobals();
   });
 
   it("configures client with correct defaults and headers", async () => {
     const fetchMock = createFetchMock();
     vi.stubGlobal("fetch", fetchMock);
-
-    const { createVoyageEmbeddingProvider } = await import("./embeddings-voyage.js");
-    const authModule = await import("../agents/model-auth.js");
 
     vi.mocked(authModule.resolveApiKeyForProvider).mockResolvedValue({
       apiKey: "voyage-key-123",
@@ -59,14 +59,13 @@ describe("voyage embedding provider", () => {
     expect(body).toEqual({
       model: "voyage-4-large",
       input: ["test query"],
+      input_type: "query",
     });
   });
 
   it("respects remote overrides for baseUrl and apiKey", async () => {
     const fetchMock = createFetchMock();
     vi.stubGlobal("fetch", fetchMock);
-
-    const { createVoyageEmbeddingProvider } = await import("./embeddings-voyage.js");
 
     const result = await createVoyageEmbeddingProvider({
       config: {} as never,
@@ -90,8 +89,41 @@ describe("voyage embedding provider", () => {
     expect(headers["X-Custom"]).toBe("123");
   });
 
+  it("passes input_type=document for embedBatch", async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        data: [{ embedding: [0.1, 0.2] }, { embedding: [0.3, 0.4] }],
+      }),
+    })) as unknown as typeof fetch;
+    vi.stubGlobal("fetch", fetchMock);
+
+    vi.mocked(authModule.resolveApiKeyForProvider).mockResolvedValue({
+      apiKey: "voyage-key-123",
+      mode: "api-key",
+      source: "test",
+    });
+
+    const result = await createVoyageEmbeddingProvider({
+      config: {} as never,
+      provider: "voyage",
+      model: "voyage-4-large",
+      fallback: "none",
+    });
+
+    await result.provider.embedBatch(["doc1", "doc2"]);
+
+    const [, init] = fetchMock.mock.calls[0] ?? [];
+    const body = JSON.parse(init?.body as string);
+    expect(body).toEqual({
+      model: "voyage-4-large",
+      input: ["doc1", "doc2"],
+      input_type: "document",
+    });
+  });
+
   it("normalizes model names", async () => {
-    const { normalizeVoyageModel } = await import("./embeddings-voyage.js");
     expect(normalizeVoyageModel("voyage/voyage-large-2")).toBe("voyage-large-2");
     expect(normalizeVoyageModel("voyage-4-large")).toBe("voyage-4-large");
     expect(normalizeVoyageModel("  voyage-lite  ")).toBe("voyage-lite");

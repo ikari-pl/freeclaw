@@ -1,8 +1,5 @@
 // Shared helpers for parsing MEDIA tokens from command/stdout text.
 
-import { existsSync } from "node:fs";
-import * as os from "os";
-import * as path from "path";
 import { parseFenceSpans } from "../markdown/fences.js";
 import { parseAudioTag } from "./audio-tags.js";
 
@@ -18,61 +15,29 @@ function cleanCandidate(raw: string) {
   return raw.replace(/^[`"'[{(]+/, "").replace(/[`"'\\})\],]+$/, "");
 }
 
-/**
- * Normalize path for case-insensitive comparison on Windows/macOS.
- * Assumes default case-insensitive macOS volumes; avoids bypass on HFS+.
- * Case-sensitive macOS volumes (HFSX) are rare in practice.
- */
-function normalizeForCompare(p: string): string {
-  if (process.platform === "win32" || process.platform === "darwin") {
-    return p.toLowerCase();
-  }
-  return p;
+const WINDOWS_DRIVE_RE = /^[a-zA-Z]:[\\/]/;
+const SCHEME_RE = /^[a-zA-Z][a-zA-Z0-9+.-]*:/;
+const HAS_FILE_EXT = /\.\w{1,10}$/;
+
+// Recognize local file path patterns. Security validation is deferred to the
+// load layer (loadWebMedia / resolveSandboxedMediaSource) which has the context
+// needed to enforce sandbox roots and allowed directories.
+function isLikelyLocalPath(candidate: string): boolean {
+  return (
+    candidate.startsWith("/") ||
+    candidate.startsWith("./") ||
+    candidate.startsWith("../") ||
+    candidate.startsWith("~") ||
+    WINDOWS_DRIVE_RE.test(candidate) ||
+    candidate.startsWith("\\\\") ||
+    (!SCHEME_RE.test(candidate) && (candidate.includes("/") || candidate.includes("\\")))
+  );
 }
 
-/**
- * Get all valid temp directory roots.
- * Includes os.tmpdir() and /tmp on POSIX when different.
- */
-function getTempRoots(): Set<string> {
-  const roots = new Set([path.resolve(os.tmpdir())]);
-
-  // On POSIX, /tmp is also a valid temp location (os.tmpdir() may return
-  // /var/folders/... on macOS, but tools often use /tmp directly)
-  if (path.sep === "/" && !roots.has("/tmp")) {
-    roots.add(path.resolve("/tmp"));
-  }
-
-  return roots;
-}
-
-/**
- * Check if an absolute path safely resolves under any temp directory root.
- * Prevents path traversal attacks (e.g., /tmp/../etc/passwd).
- * Uses path.relative() to avoid prefix edge cases and trailing-slash quirks.
- */
-function isSafeTempPath(candidate: string): boolean {
-  const resolved = path.resolve(candidate);
-  const normalizedResolved = normalizeForCompare(resolved);
-  const tempRoots = getTempRoots();
-
-  for (const tempRoot of tempRoots) {
-    const normalizedRoot = normalizeForCompare(tempRoot);
-    const rel = path.relative(normalizedRoot, normalizedResolved);
-
-    // Valid if:
-    // - rel is not empty (candidate is not the temp dir itself)
-    // - rel doesn't start with ".." (candidate is inside temp dir)
-    // - rel is not absolute (handles Windows cross-drive edge case)
-    if (rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel)) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-function isValidMedia(candidate: string, opts?: { allowSpaces?: boolean }) {
+function isValidMedia(
+  candidate: string,
+  opts?: { allowSpaces?: boolean; allowBareFilename?: boolean },
+) {
   if (!candidate) {
     return false;
   }
@@ -86,14 +51,17 @@ function isValidMedia(candidate: string, opts?: { allowSpaces?: boolean }) {
     return true;
   }
 
-  // Allow absolute paths under OS temp directory (for tool outputs like TTS).
-  // Require the file to actually exist to reject hallucinated paths from models.
-  if (path.isAbsolute(candidate) && isSafeTempPath(candidate) && existsSync(candidate)) {
+  if (isLikelyLocalPath(candidate)) {
     return true;
   }
 
-  // Local paths: only allow safe relative paths starting with ./ that do not traverse upwards.
-  return candidate.startsWith("./") && !candidate.includes("..");
+  // Accept bare filenames (e.g. "image.png") only when the caller opts in.
+  // This avoids treating space-split path fragments as separate media items.
+  if (opts?.allowBareFilename && !SCHEME_RE.test(candidate) && HAS_FILE_EXT.test(candidate)) {
+    return true;
+  }
+
+  return false;
 }
 
 function unwrapQuoted(value: string): string | undefined {
@@ -192,11 +160,7 @@ export function splitMediaFromOutput(raw: string): {
 
       const trimmedPayload = payloadValue.trim();
       const looksLikeLocalPath =
-        trimmedPayload.startsWith("/") ||
-        trimmedPayload.startsWith("./") ||
-        trimmedPayload.startsWith("../") ||
-        trimmedPayload.startsWith("~") ||
-        trimmedPayload.startsWith("file://");
+        isLikelyLocalPath(trimmedPayload) || trimmedPayload.startsWith("file://");
       if (
         !unwrapped &&
         validCount === 1 &&
@@ -216,7 +180,7 @@ export function splitMediaFromOutput(raw: string): {
 
       if (!hasValidMedia) {
         const fallback = normalizeMediaSource(cleanCandidate(payloadValue));
-        if (isValidMedia(fallback, { allowSpaces: true })) {
+        if (isValidMedia(fallback, { allowSpaces: true, allowBareFilename: true })) {
           media.push(fallback);
           hasValidMedia = true;
           foundMediaToken = true;
@@ -228,6 +192,10 @@ export function splitMediaFromOutput(raw: string): {
         if (invalidParts.length > 0) {
           pieces.push(invalidParts.join(" "));
         }
+      } else if (looksLikeLocalPath) {
+        // Strip MEDIA: lines with local paths even when invalid (e.g. absolute paths
+        // from internal tools like TTS). They should never leak as visible text.
+        foundMediaToken = true;
       } else {
         // If no valid media was found in this match, keep the original token text.
         pieces.push(match[0]);

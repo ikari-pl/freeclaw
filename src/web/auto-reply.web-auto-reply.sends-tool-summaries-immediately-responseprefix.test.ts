@@ -173,7 +173,7 @@ describe("web auto-reply", () => {
           agentId: "rich",
           match: {
             channel: "whatsapp",
-            peer: { kind: "dm", id: "+1555" },
+            peer: { kind: "direct", id: "+1555" },
           },
         },
       ],
@@ -232,7 +232,7 @@ describe("web auto-reply", () => {
           agentId: "rich",
           match: {
             channel: "whatsapp",
-            peer: { kind: "dm", id: "+1555" },
+            peer: { kind: "direct", id: "+1555" },
           },
         },
       ],
