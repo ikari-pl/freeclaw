@@ -77,6 +77,18 @@ If the text is already correct, return:
   "unchanged": true
 }
 
+## Repetition awareness
+
+When recent messages from the same conversation are provided as context, check the
+current text for repetitive patterns compared to those messages:
+- Identical or near-identical opening phrases (e.g. always starting with "Mmm, kotku...")
+- Overused pet names, greetings, or filler at the very beginning of the message
+- Copy-paste sentence structures that make consecutive messages sound robotic
+
+If you detect a repetitive opening, gently vary it — keep the warmth and tone, but choose
+a different word, pet name, or sentence structure so the conversation feels alive and natural.
+Do NOT strip affection — just rotate how it's expressed.
+
 IMPORTANT: Return raw JSON only. Do NOT wrap in \`\`\`json code fences.`;
 
 export interface ProofreadResult {
@@ -277,6 +289,7 @@ export async function proofreadText(params: {
   cfg?: OpenClawConfig;
   agentDir: string;
   model?: string;
+  context?: string;
   speakerName?: string;
   speakerGender?: string;
   addresseeName?: string;
@@ -322,6 +335,7 @@ export async function proofreadText(params: {
         content: buildUserMessage({
           text: params.text,
           voiceHint,
+          context: params.context,
           speakerName: params.speakerName,
           speakerGender: params.speakerGender,
           addresseeName: params.addresseeName,
@@ -375,6 +389,39 @@ export async function proofreadText(params: {
   return parseProofreadResponse(responseText, params.text);
 }
 
+// ── Conversation context ring buffer ─────────────────────────────────────────
+
+const RECENT_OUTBOUND_CAP = 3;
+
+/**
+ * Per-session ring buffer of recent outbound message texts.
+ * Used to give the proofreader context for detecting repetitive openings.
+ * In-memory only — resets on gateway restart, which is fine since
+ * repetitive patterns are a within-session phenomenon.
+ */
+const recentOutbound = new Map<string, string[]>();
+
+function pushOutboundText(sessionKey: string, text: string): void {
+  let buf = recentOutbound.get(sessionKey);
+  if (!buf) {
+    buf = [];
+    recentOutbound.set(sessionKey, buf);
+  }
+  buf.push(text);
+  if (buf.length > RECENT_OUTBOUND_CAP) {
+    buf.shift();
+  }
+}
+
+function getRecentOutboundContext(sessionKey: string): string | undefined {
+  const buf = recentOutbound.get(sessionKey);
+  if (!buf || buf.length === 0) {
+    return undefined;
+  }
+  const lines = buf.map((t, i) => `[${i + 1}] ${t.slice(0, 200)}`);
+  return `Recent messages in this conversation (check for repetitive openings):\n${lines.join("\n")}`;
+}
+
 // ── Dispatch pipeline entry point ───────────────────────────────────────────
 
 const MIN_PROOFREAD_LENGTH = 20;
@@ -392,6 +439,7 @@ export async function maybeProofreadPayload(params: {
   payload: ReplyPayload;
   cfg: OpenClawConfig;
   agentDir?: string;
+  sessionKey?: string;
 }): Promise<ReplyPayload> {
   const proofCfg: ProofreadConfig | undefined = params.cfg.messages?.proofread;
   if (!proofCfg?.auto) {
@@ -407,10 +455,13 @@ export async function maybeProofreadPayload(params: {
     return params.payload;
   }
 
+  // Build conversation context from recent outbound messages for this session.
+  const context = params.sessionKey ? getRecentOutboundContext(params.sessionKey) : undefined;
+
   try {
     const log = getLogger();
     log.info(
-      `[proofread] starting: ${text.length} chars via ${proofCfg.model || DEFAULT_PROOFREAD_MODEL}`,
+      `[proofread] starting: ${text.length} chars via ${proofCfg.model || DEFAULT_PROOFREAD_MODEL}${context ? " (with conversation context)" : ""}`,
     );
 
     const t0 = Date.now();
@@ -419,6 +470,7 @@ export async function maybeProofreadPayload(params: {
       cfg: params.cfg,
       agentDir: params.agentDir,
       model: proofCfg.model,
+      context,
       speakerName: proofCfg.speaker?.name,
       speakerGender: proofCfg.speaker?.gender,
       addresseeName: proofCfg.addressee?.name,
@@ -429,6 +481,12 @@ export async function maybeProofreadPayload(params: {
     if (result.error) {
       log.warn(`[proofread] error (${elapsed}ms): ${result.error}`);
       return params.payload;
+    }
+
+    // Track outbound text for future repetition detection.
+    if (params.sessionKey) {
+      const outText = result.unchanged ? text : result.corrected_text;
+      pushOutboundText(params.sessionKey, outText);
     }
 
     if (result.unchanged) {

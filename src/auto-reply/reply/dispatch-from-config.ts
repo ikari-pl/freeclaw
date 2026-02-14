@@ -384,6 +384,7 @@ export async function dispatchReplyFromConfig(params: {
             payload: reply,
             cfg,
             agentDir: proofreadAgentDir,
+            sessionKey: ctx.SessionKey,
           });
 
       // In deferred mode, send text immediately without waiting for TTS.
