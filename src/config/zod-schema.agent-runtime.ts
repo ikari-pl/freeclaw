@@ -6,6 +6,7 @@ import {
   IdentitySchema,
   ToolsLinksSchema,
   ToolsMediaSchema,
+  TtsAutoSchema,
 } from "./zod-schema.core.js";
 import { sensitive } from "./zod-schema.sensitive.js";
 
@@ -480,6 +481,7 @@ export const AgentEntrySchema = z
       .optional(),
     tts: z
       .object({
+        auto: TtsAutoSchema.optional(),
         elevenlabs: z
           .object({
             voiceId: z.string().optional(),
