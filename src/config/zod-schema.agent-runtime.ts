@@ -472,6 +472,31 @@ export const AgentEntrySchema = z
       .optional(),
     sandbox: AgentSandboxSchema,
     tools: AgentToolsSchema,
+    proofread: z
+      .object({
+        auto: z.boolean().optional(),
+      })
+      .strict()
+      .optional(),
+    tts: z
+      .object({
+        elevenlabs: z
+          .object({
+            voiceId: z.string().optional(),
+            modelId: z.string().optional(),
+          })
+          .strict()
+          .optional(),
+        openai: z
+          .object({
+            voice: z.string().optional(),
+            model: z.string().optional(),
+          })
+          .strict()
+          .optional(),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 

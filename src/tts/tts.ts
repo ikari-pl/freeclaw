@@ -15,6 +15,7 @@ import path from "node:path";
 import type { ReplyPayload } from "../auto-reply/types.js";
 import type { ChannelId } from "../channels/plugins/types.js";
 import type { OpenClawConfig } from "../config/config.js";
+import type { AgentTtsConfig } from "../config/types.agents.js";
 import type {
   TtsConfig,
   TtsAutoMode,
@@ -22,6 +23,7 @@ import type {
   TtsProvider,
   TtsModelOverrideConfig,
 } from "../config/types.tts.js";
+import { resolveAgentConfig } from "../agents/agent-scope.js";
 import { getApiKeyForModel, requireApiKey } from "../agents/model-auth.js";
 import {
   buildModelAliasIndex,
@@ -247,7 +249,10 @@ function resolveModelOverridePolicy(
   };
 }
 
-export function resolveTtsConfig(cfg: OpenClawConfig): ResolvedTtsConfig {
+export function resolveTtsConfig(
+  cfg: OpenClawConfig,
+  agentTts?: AgentTtsConfig,
+): ResolvedTtsConfig {
   const raw: TtsConfig = cfg.messages?.tts ?? {};
   const providerSource = raw.provider ? "config" : "default";
   const edgeOutputFormat = raw.edge?.outputFormat?.trim();
@@ -262,8 +267,10 @@ export function resolveTtsConfig(cfg: OpenClawConfig): ResolvedTtsConfig {
     elevenlabs: {
       apiKey: raw.elevenlabs?.apiKey,
       baseUrl: raw.elevenlabs?.baseUrl?.trim() || DEFAULT_ELEVENLABS_BASE_URL,
-      voiceId: raw.elevenlabs?.voiceId ?? DEFAULT_ELEVENLABS_VOICE_ID,
-      modelId: raw.elevenlabs?.modelId ?? DEFAULT_ELEVENLABS_MODEL_ID,
+      voiceId:
+        agentTts?.elevenlabs?.voiceId ?? raw.elevenlabs?.voiceId ?? DEFAULT_ELEVENLABS_VOICE_ID,
+      modelId:
+        agentTts?.elevenlabs?.modelId ?? raw.elevenlabs?.modelId ?? DEFAULT_ELEVENLABS_MODEL_ID,
       seed: raw.elevenlabs?.seed,
       applyTextNormalization: raw.elevenlabs?.applyTextNormalization,
       languageCode: raw.elevenlabs?.languageCode,
@@ -282,8 +289,8 @@ export function resolveTtsConfig(cfg: OpenClawConfig): ResolvedTtsConfig {
     },
     openai: {
       apiKey: raw.openai?.apiKey,
-      model: raw.openai?.model ?? DEFAULT_OPENAI_MODEL,
-      voice: raw.openai?.voice ?? DEFAULT_OPENAI_VOICE,
+      model: agentTts?.openai?.model ?? raw.openai?.model ?? DEFAULT_OPENAI_MODEL,
+      voice: agentTts?.openai?.voice ?? raw.openai?.voice ?? DEFAULT_OPENAI_VOICE,
     },
     edge: {
       enabled: raw.edge?.enabled ?? true,
@@ -1188,8 +1195,9 @@ export async function textToSpeech(params: {
   prefsPath?: string;
   channel?: string;
   overrides?: TtsDirectiveOverrides;
+  agentTts?: AgentTtsConfig;
 }): Promise<TtsResult> {
-  const config = resolveTtsConfig(params.cfg);
+  const config = resolveTtsConfig(params.cfg, params.agentTts);
   const prefsPath = params.prefsPath ?? resolveTtsPrefsPath(config);
   const channelId = resolveChannelId(params.channel);
   const output = resolveOutputFormat(channelId);
@@ -1472,8 +1480,10 @@ export async function maybeApplyTtsToPayload(params: {
   kind?: "tool" | "block" | "final";
   inboundAudio?: boolean;
   ttsAuto?: string;
+  agentId?: string;
 }): Promise<ReplyPayload> {
-  const config = resolveTtsConfig(params.cfg);
+  const agentTts = params.agentId ? resolveAgentConfig(params.cfg, params.agentId)?.tts : undefined;
+  const config = resolveTtsConfig(params.cfg, agentTts);
   const prefsPath = resolveTtsPrefsPath(config);
   const autoMode = resolveTtsAutoMode({
     config,
@@ -1482,7 +1492,7 @@ export async function maybeApplyTtsToPayload(params: {
   });
 
   getLogger().info(
-    `[tts] maybeApply autoMode=${autoMode} kind=${params.kind} channel=${params.channel} textLen=${(params.payload.text ?? "").length} ttsAuto=${params.ttsAuto ?? "unset"}`,
+    `[tts] maybeApply autoMode=${autoMode} kind=${params.kind} channel=${params.channel} agent=${params.agentId ?? "default"} textLen=${(params.payload.text ?? "").length} ttsAuto=${params.ttsAuto ?? "unset"}`,
   );
 
   if (autoMode === "off") {
@@ -1575,7 +1585,7 @@ export async function maybeApplyTtsToPayload(params: {
   }
 
   getLogger().info(
-    `[tts] calling textToSpeech provider=${config.provider} voiceId=${config.elevenlabs.voiceId} modelId=${config.elevenlabs.modelId} textLen=${textForAudio.length}`,
+    `[tts] calling textToSpeech provider=${config.provider} voiceId=${config.elevenlabs.voiceId} modelId=${config.elevenlabs.modelId} agent=${params.agentId ?? "default"} textLen=${textForAudio.length}`,
   );
 
   const ttsStart = Date.now();
@@ -1585,6 +1595,7 @@ export async function maybeApplyTtsToPayload(params: {
     prefsPath,
     channel: params.channel,
     overrides: directives.overrides,
+    agentTts: agentTts,
   });
 
   if (result.success && result.audioPath) {

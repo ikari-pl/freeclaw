@@ -1,25 +1,30 @@
 #!/usr/bin/env bash
-# Restart the local OpenClaw gateway (Node.js dev mode).
-# Usage: scripts/restart-gateway.sh [--tail] [--verbose]
-#   --tail     Follow the gateway log after starting
-#   --verbose  Enable verbose/debug logging (TTS, config resolution, etc.)
+# Restart the OpenClaw gateway via launchd (the installed service).
+# Falls back to a direct `gateway restart` CLI call if the service isn't installed.
+#
+# Usage: scripts/restart-gateway.sh [--tail] [--install]
+#   --tail      Follow the gateway log after restarting
+#   --install   Re-run `gateway install --force` before starting (picks up new port/token)
 
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+NODE="${ROOT_DIR}/openclaw.mjs"
 CONFIG="${HOME}/.openclaw/openclaw.json"
-LOG="/tmp/openclaw-gateway.log"
+PLIST="${HOME}/Library/LaunchAgents/ai.openclaw.gateway.plist"
+LAUNCHD_LOG="${HOME}/.openclaw/logs/gateway.log"
+DAILY_LOG="/tmp/openclaw/openclaw-$(date +%Y-%m-%d).log"
 TAIL=0
-VERBOSE=""
+INSTALL=0
 
 for arg in "$@"; do
   case "${arg}" in
-    --tail|-t) TAIL=1 ;;
-    --verbose|-v) VERBOSE="--verbose" ;;
+    --tail|-t)    TAIL=1 ;;
+    --install|-i) INSTALL=1 ;;
     --help|-h)
-      echo "Usage: $(basename "$0") [--tail] [--verbose]"
-      echo "  --tail     Follow gateway log after starting"
-      echo "  --verbose  Enable verbose/debug logging"
+      echo "Usage: $(basename "$0") [--tail] [--install]"
+      echo "  --tail      Follow gateway log after restarting"
+      echo "  --install   Reinstall launchd service before starting"
       exit 0
       ;;
   esac
@@ -36,34 +41,38 @@ PORT="$(
   '
 )"
 
-echo "==> Stopping gateway on port ${PORT}"
-pkill -9 -f "openclaw.mjs gateway" 2>/dev/null || true
-pkill -9 -f "openclaw-gateway" 2>/dev/null || true
+# Kill any rogue nohup gateway processes that aren't launchd-managed.
+# This cleans up leftovers from the old script.
+pkill -f "openclaw.mjs gateway run" 2>/dev/null || true
 
-# Wait for port to free up.
-for i in {1..10}; do
-  if ! lsof -iTCP:"${PORT}" -sTCP:LISTEN -t >/dev/null 2>&1; then
-    break
-  fi
-  sleep 0.3
-done
+if [[ "${INSTALL}" -eq 1 ]]; then
+  echo "==> Reinstalling launchd service"
+  node "${NODE}" gateway stop 2>/dev/null || true
+  node "${NODE}" gateway install --force --port "${PORT}"
+fi
 
-echo "==> Starting gateway (port ${PORT}, log: ${LOG})"
-cd "${ROOT_DIR}"
-nohup node openclaw.mjs gateway run --bind loopback --port "${PORT}" --force ${VERBOSE} > "${LOG}" 2>&1 &
-GW_PID=$!
+echo "==> Restarting gateway (port ${PORT})"
+node "${NODE}" gateway restart
 
 # Wait for the gateway to bind.
 for i in {1..20}; do
   if lsof -iTCP:"${PORT}" -sTCP:LISTEN -t >/dev/null 2>&1; then
-    echo "OK: Gateway running (pid ${GW_PID}, port ${PORT})"
+    PID="$(lsof -iTCP:"${PORT}" -sTCP:LISTEN -t 2>/dev/null | head -1)"
+    echo "OK: Gateway running (pid ${PID}, port ${PORT})"
     if [[ "${TAIL}" -eq 1 ]]; then
-      exec tail -f "${LOG}"
+      # Follow whichever log exists; prefer daily internal log.
+      if [[ -f "${DAILY_LOG}" ]]; then
+        exec tail -f "${DAILY_LOG}"
+      else
+        exec tail -f "${LAUNCHD_LOG}"
+      fi
     fi
     exit 0
   fi
   sleep 0.5
 done
 
-echo "WARN: Gateway may not have started. Check: tail -f ${LOG}"
+echo "WARN: Gateway may not have started. Check:"
+echo "  tail -f ${LAUNCHD_LOG}"
+echo "  tail -f ${DAILY_LOG}"
 exit 1

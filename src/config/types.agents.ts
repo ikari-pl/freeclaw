@@ -18,6 +18,22 @@ export type AgentModelConfig =
       fallbacks?: string[];
     };
 
+/**
+ * Per-agent TTS overrides — merged into the global TTS config by
+ * resolveTtsConfig() so that the entire pipeline sees agent-aware settings.
+ * Agent values overlay global ones; inline [[tts:…]] directives still win.
+ */
+export type AgentTtsConfig = {
+  elevenlabs?: {
+    voiceId?: string;
+    modelId?: string;
+  };
+  openai?: {
+    voice?: string;
+    model?: string;
+  };
+};
+
 export type AgentConfig = {
   id: string;
   default?: boolean;
@@ -34,6 +50,8 @@ export type AgentConfig = {
   heartbeat?: AgentDefaultsConfig["heartbeat"];
   identity?: IdentityConfig;
   groupChat?: GroupChatConfig;
+  /** Per-agent TTS voice/model overrides (see AgentTtsConfig). */
+  tts?: AgentTtsConfig;
   subagents?: {
     /** Allow spawning sub-agents under other agent ids. Use "*" to allow any. */
     allowAgents?: string[];
@@ -63,6 +81,8 @@ export type AgentConfig = {
     prune?: SandboxPruneSettings;
   };
   tools?: AgentToolsConfig;
+  /** Per-agent proofread override. Set `{ auto: false }` to disable the global proofreader for this agent. */
+  proofread?: { auto?: boolean };
 };
 
 export type AgentsConfig = {

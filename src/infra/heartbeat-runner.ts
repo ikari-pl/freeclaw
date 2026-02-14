@@ -21,6 +21,7 @@ import {
   stripHeartbeatToken,
 } from "../auto-reply/heartbeat.js";
 import { getReplyFromConfig } from "../auto-reply/reply.js";
+import { stripTtsDirectivesForDisplay } from "../auto-reply/reply/proofread-transform.js";
 import { HEARTBEAT_TOKEN } from "../auto-reply/tokens.js";
 import { getChannelPlugin } from "../channels/plugins/index.js";
 import { parseDurationMs } from "../cli/parse-duration.js";
@@ -634,6 +635,9 @@ export async function runHeartbeatOnce(opts: {
 
     const ackMaxChars = resolveHeartbeatAckMaxChars(cfg, heartbeat);
     const normalized = normalizeHeartbeatReply(replyPayload, responsePrefix, ackMaxChars);
+    // Strip [[tts:text]]...[[/tts:text]] directives — heartbeat delivery bypasses
+    // maybeApplyTtsToPayload, so these tags would leak as raw text to Telegram.
+    normalized.text = stripTtsDirectivesForDisplay({ text: normalized.text }).text ?? "";
     // For exec completion events, don't skip even if the response looks like HEARTBEAT_OK.
     // The model should be responding with exec results, not ack tokens.
     // Also, if normalized.text is empty due to token stripping but we have exec completion,
@@ -766,13 +770,14 @@ export async function runHeartbeatOnce(opts: {
       }
     }
 
+    const cleanedReasoningPayloads = reasoningPayloads.map((p) => stripTtsDirectivesForDisplay(p));
     await deliverOutboundPayloads({
       cfg,
       channel: delivery.channel,
       to: delivery.to,
       accountId: deliveryAccountId,
       payloads: [
-        ...reasoningPayloads,
+        ...cleanedReasoningPayloads,
         ...(shouldSkipMain
           ? []
           : [

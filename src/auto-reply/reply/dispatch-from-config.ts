@@ -150,9 +150,9 @@ export async function dispatchReplyFromConfig(params: {
   const inboundAudio = isInboundAudioContext(ctx);
   const sessionTtsAuto = resolveSessionTtsAuto(ctx, cfg);
 
-  // Resolve agentDir for automatic proofread transform.
-  const proofreadAgentId = resolveSessionAgentId({ sessionKey: ctx.SessionKey, config: cfg });
-  const proofreadAgentDir = proofreadAgentId ? resolveAgentDir(cfg, proofreadAgentId) : undefined;
+  // Resolve agent for proofread + per-agent TTS voice.
+  const sessionAgentId = resolveSessionAgentId({ sessionKey: ctx.SessionKey, config: cfg });
+  const proofreadAgentDir = sessionAgentId ? resolveAgentDir(cfg, sessionAgentId) : undefined;
 
   const hookRunner = getGlobalHookRunner();
   if (hookRunner?.hasHooks("message_received")) {
@@ -315,6 +315,7 @@ export async function dispatchReplyFromConfig(params: {
                   kind: "tool",
                   inboundAudio,
                   ttsAuto: sessionTtsAuto,
+                  agentId: sessionAgentId,
                 });
                 if (shouldRouteToOriginating) {
                   await sendPayloadAsync(ttsPayload, undefined, false);
@@ -342,6 +343,7 @@ export async function dispatchReplyFromConfig(params: {
               kind: "block",
               inboundAudio,
               ttsAuto: sessionTtsAuto,
+              agentId: sessionAgentId,
             });
             if (shouldRouteToOriginating) {
               await sendPayloadAsync(ttsPayload, context?.abortSignal, false);
@@ -365,15 +367,24 @@ export async function dispatchReplyFromConfig(params: {
     // Accumulate text from all final replies for deferred TTS generation.
     const deferredTtsTexts: string[] = [];
 
+    // Check per-agent proofread override (e.g. brian has proofread.auto=false
+    // because the global proofreader is a Polish-language editor).
+    const agentEntry = sessionAgentId
+      ? cfg.agents?.list?.find((a) => a.id === sessionAgentId)
+      : undefined;
+    const agentProofreadDisabled = agentEntry?.proofread?.auto === false;
+
     for (const reply of replies) {
       // Automatic proofread: correct Polish text before TTS picks it up.
       // The transform embeds [[tts:text]]corrected_voice[[/tts:text]] directives
       // that parseTtsDirectives() will extract for the voice-optimized variant.
-      const proofreadReply = await maybeProofreadPayload({
-        payload: reply,
-        cfg,
-        agentDir: proofreadAgentDir,
-      });
+      const proofreadReply = agentProofreadDisabled
+        ? reply
+        : await maybeProofreadPayload({
+            payload: reply,
+            cfg,
+            agentDir: proofreadAgentDir,
+          });
 
       // In deferred mode, send text immediately without waiting for TTS.
       // Strip [[tts:text]] directives from display text so they don't leak to users.
@@ -386,6 +397,7 @@ export async function dispatchReplyFromConfig(params: {
             kind: "final",
             inboundAudio,
             ttsAuto: sessionTtsAuto,
+            agentId: sessionAgentId,
           });
 
       // For deferred TTS, accumulate full text (with directives) so TTS gets corrected_voice.
@@ -438,6 +450,7 @@ export async function dispatchReplyFromConfig(params: {
           kind: "final",
           inboundAudio,
           ttsAuto: sessionTtsAuto,
+          agentId: sessionAgentId,
         });
         getLogger().info(
           `[tts/deferred] result: hasMediaUrl=${Boolean(ttsResult.mediaUrl)} hasText=${Boolean(ttsResult.text)}`,
@@ -494,6 +507,7 @@ export async function dispatchReplyFromConfig(params: {
           kind: "final",
           inboundAudio,
           ttsAuto: sessionTtsAuto,
+          agentId: sessionAgentId,
         });
         // Only send if TTS was actually applied (mediaUrl exists)
         if (ttsSyntheticReply.mediaUrl) {

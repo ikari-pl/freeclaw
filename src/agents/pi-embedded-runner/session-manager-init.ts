@@ -34,9 +34,15 @@ export async function prepareSessionManagerForRun(params: {
     (e) => e.type === "message" && (e as SessionMessageEntry).message?.role === "assistant",
   );
 
+  // Always keep the session header cwd in sync with the resolved workspace so
+  // that tools (exec, read, etc.) use the agent's workspace, not the gateway's
+  // process.cwd() that was captured when the file was first created.
+  if (header) {
+    header.cwd = params.cwd;
+  }
+
   if (!params.hadSessionFile && header) {
     header.id = params.sessionId;
-    header.cwd = params.cwd;
     sm.sessionId = params.sessionId;
     return;
   }

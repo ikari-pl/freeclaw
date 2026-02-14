@@ -921,6 +921,7 @@ async function handleSendAction(ctx: ResolvedActionContext): Promise<MessageActi
         cfg,
         channel,
         kind: "final",
+        agentId,
       });
       if (ttsResult.mediaUrl) {
         await executeSendAction({
