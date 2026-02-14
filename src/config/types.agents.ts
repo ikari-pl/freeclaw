@@ -24,6 +24,8 @@ export type AgentModelConfig =
  * Agent values overlay global ones; inline [[tts:…]] directives still win.
  */
 export type AgentTtsConfig = {
+  /** Per-agent auto mode override ("always" | "tagged" | "off"). */
+  auto?: string;
   elevenlabs?: {
     voiceId?: string;
     modelId?: string;

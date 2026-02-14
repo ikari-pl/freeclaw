@@ -256,7 +256,8 @@ export function resolveTtsConfig(
   const raw: TtsConfig = cfg.messages?.tts ?? {};
   const providerSource = raw.provider ? "config" : "default";
   const edgeOutputFormat = raw.edge?.outputFormat?.trim();
-  const auto = normalizeTtsAutoMode(raw.auto) ?? (raw.enabled ? "always" : "off");
+  const globalAuto = normalizeTtsAutoMode(raw.auto) ?? (raw.enabled ? "always" : "off");
+  const auto = normalizeTtsAutoMode(agentTts?.auto) ?? globalAuto;
   return {
     auto,
     mode: raw.mode ?? "final",
