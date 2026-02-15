@@ -1486,14 +1486,21 @@ export async function maybeApplyTtsToPayload(params: {
   const agentTts = params.agentId ? resolveAgentConfig(params.cfg, params.agentId)?.tts : undefined;
   const config = resolveTtsConfig(params.cfg, agentTts);
   const prefsPath = resolveTtsPrefsPath(config);
-  const autoMode = resolveTtsAutoMode({
-    config,
-    prefsPath,
-    sessionAuto: params.ttsAuto,
-  });
+  // Per-agent auto mode override takes priority over the shared prefs file,
+  // but session-level auto (from inline directives) still wins over everything.
+  // Chain: sessionAuto → agentTts.auto → prefs file → global config auto.
+  const sessionAutoResolved = normalizeTtsAutoMode(params.ttsAuto);
+  const agentAutoOverride = normalizeTtsAutoMode(agentTts?.auto);
+  const autoMode =
+    sessionAutoResolved ??
+    agentAutoOverride ??
+    resolveTtsAutoMode({
+      config,
+      prefsPath,
+    });
 
-  console.error(
-    `[tts] maybeApply autoMode=${autoMode} kind=${params.kind} channel=${params.channel} agent=${params.agentId ?? "default"} voiceId=${config.elevenlabs.voiceId} textLen=${(params.payload.text ?? "").length} ttsAuto=${params.ttsAuto ?? "unset"}`,
+  logVerbose(
+    `TTS: maybeApply autoMode=${autoMode} kind=${params.kind} channel=${params.channel} agent=${params.agentId ?? "default"} voiceId=${config.elevenlabs.voiceId} textLen=${(params.payload.text ?? "").length}`,
   );
 
   if (autoMode === "off") {
@@ -1585,8 +1592,8 @@ export async function maybeApplyTtsToPayload(params: {
     return nextPayload;
   }
 
-  console.error(
-    `[tts] calling textToSpeech provider=${config.provider} voiceId=${config.elevenlabs.voiceId} modelId=${config.elevenlabs.modelId} agent=${params.agentId ?? "default"} textLen=${textForAudio.length}`,
+  logVerbose(
+    `TTS: calling textToSpeech provider=${config.provider} voiceId=${config.elevenlabs.voiceId} modelId=${config.elevenlabs.modelId} agent=${params.agentId ?? "default"} textLen=${textForAudio.length}`,
   );
 
   const ttsStart = Date.now();
