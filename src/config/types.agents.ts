@@ -29,6 +29,13 @@ export type AgentTtsConfig = {
   elevenlabs?: {
     voiceId?: string;
     modelId?: string;
+    voiceSettings?: {
+      stability?: number;
+      similarityBoost?: number;
+      style?: number;
+      useSpeakerBoost?: boolean;
+      speed?: number;
+    };
   };
   openai?: {
     voice?: string;

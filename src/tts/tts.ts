@@ -277,15 +277,25 @@ export function resolveTtsConfig(
       languageCode: raw.elevenlabs?.languageCode,
       voiceSettings: {
         stability:
-          raw.elevenlabs?.voiceSettings?.stability ?? DEFAULT_ELEVENLABS_VOICE_SETTINGS.stability,
+          agentTts?.elevenlabs?.voiceSettings?.stability ??
+          raw.elevenlabs?.voiceSettings?.stability ??
+          DEFAULT_ELEVENLABS_VOICE_SETTINGS.stability,
         similarityBoost:
+          agentTts?.elevenlabs?.voiceSettings?.similarityBoost ??
           raw.elevenlabs?.voiceSettings?.similarityBoost ??
           DEFAULT_ELEVENLABS_VOICE_SETTINGS.similarityBoost,
-        style: raw.elevenlabs?.voiceSettings?.style ?? DEFAULT_ELEVENLABS_VOICE_SETTINGS.style,
+        style:
+          agentTts?.elevenlabs?.voiceSettings?.style ??
+          raw.elevenlabs?.voiceSettings?.style ??
+          DEFAULT_ELEVENLABS_VOICE_SETTINGS.style,
         useSpeakerBoost:
+          agentTts?.elevenlabs?.voiceSettings?.useSpeakerBoost ??
           raw.elevenlabs?.voiceSettings?.useSpeakerBoost ??
           DEFAULT_ELEVENLABS_VOICE_SETTINGS.useSpeakerBoost,
-        speed: raw.elevenlabs?.voiceSettings?.speed ?? DEFAULT_ELEVENLABS_VOICE_SETTINGS.speed,
+        speed:
+          agentTts?.elevenlabs?.voiceSettings?.speed ??
+          raw.elevenlabs?.voiceSettings?.speed ??
+          DEFAULT_ELEVENLABS_VOICE_SETTINGS.speed,
       },
     },
     openai: {
@@ -623,7 +633,9 @@ function parseTtsDirectives(
 
   // Collect ALL [[tts:text]] blocks and concatenate — when deferred TTS joins
   // 2+ reply blocks, each with its own directive, only the first was captured before.
-  const blockRegex = /\[\[tts:text\]\]([\s\S]*?)\[\[\/tts:text\]\]/gi;
+  // Accept both [[/tts:text]] and [/tts:text]] — models naturally write [/tag]
+  // (single opening bracket on close) like HTML </tag>.
+  const blockRegex = /\[\[tts:text\]\]([\s\S]*?)\[{1,2}\/tts:text\]\]/gi;
   const ttsTextParts: string[] = [];
   cleanedText = cleanedText.replace(blockRegex, (_match, inner: string) => {
     hasDirective = true;
@@ -1590,6 +1602,12 @@ export async function maybeApplyTtsToPayload(params: {
   textForAudio = stripMarkdown(textForAudio).trim(); // strip markdown for TTS (### → "hashtag" etc.)
   if (textForAudio.length < 10) {
     return nextPayload;
+  }
+
+  // Append a trailing pause if the text doesn't already end with one —
+  // prevents ElevenLabs from cutting off the last word or two.
+  if (!/\[(?:long |medium |short )?pause[^\]]*\]\s*$/i.test(textForAudio)) {
+    textForAudio += " [medium pause]";
   }
 
   logVerbose(

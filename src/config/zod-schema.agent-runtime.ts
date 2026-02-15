@@ -486,6 +486,16 @@ export const AgentEntrySchema = z
           .object({
             voiceId: z.string().optional(),
             modelId: z.string().optional(),
+            voiceSettings: z
+              .object({
+                stability: z.number().min(0).max(1).optional(),
+                similarityBoost: z.number().min(0).max(1).optional(),
+                style: z.number().min(0).max(1).optional(),
+                useSpeakerBoost: z.boolean().optional(),
+                speed: z.number().min(0.25).max(4).optional(),
+              })
+              .strict()
+              .optional(),
           })
           .strict()
           .optional(),

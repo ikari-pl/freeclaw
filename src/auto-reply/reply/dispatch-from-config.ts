@@ -151,7 +151,13 @@ export async function dispatchReplyFromConfig(params: {
   const sessionTtsAuto = resolveSessionTtsAuto(ctx, cfg);
 
   // Resolve agent for proofread + per-agent TTS voice.
-  const sessionAgentId = resolveSessionAgentId({ sessionKey: ctx.SessionKey, config: cfg });
+  // For native commands (/reset etc.), prefer CommandTargetSessionKey which carries the
+  // agent-prefixed session key (e.g. "agent:brian:direct:569397947"), because SessionKey
+  // is just "telegram:slash:<chatId>" and parseAgentSessionKey won't find an agent in it.
+  const effectiveSessionKey =
+    (ctx.CommandSource === "native" ? ctx.CommandTargetSessionKey?.trim() : undefined) ??
+    ctx.SessionKey;
+  const sessionAgentId = resolveSessionAgentId({ sessionKey: effectiveSessionKey, config: cfg });
   const proofreadAgentDir = sessionAgentId ? resolveAgentDir(cfg, sessionAgentId) : undefined;
 
   const hookRunner = getGlobalHookRunner();

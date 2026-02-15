@@ -267,7 +267,9 @@ export function buildUserMessage(params: {
 
   // Strip [[tts:text]] directives from display text — Sonnet doesn't understand them
   // as markup and would include their content in corrected_text, causing a text leak.
-  const cleanText = params.text.replace(/\[\[tts:text\]\][\s\S]*?\[\[\/tts:text\]\]/gi, "").trim();
+  const cleanText = params.text
+    .replace(/\[\[tts:text\]\][\s\S]*?\[{1,2}\/tts:text\]\]/gi, "")
+    .trim();
   lines.push("");
   lines.push("Text to proofread:");
   lines.push(cleanText);
@@ -324,7 +326,7 @@ export async function proofreadText(params: {
   authStorage.setRuntimeApiKey(resolved.provider, apiKey);
 
   // Extract [[tts:text]] voice hint from model output before sending to Sonnet.
-  const voiceBlockMatch = params.text.match(/\[\[tts:text\]\]([\s\S]*?)\[\[\/tts:text\]\]/i);
+  const voiceBlockMatch = params.text.match(/\[\[tts:text\]\]([\s\S]*?)\[{1,2}\/tts:text\]\]/i);
   const voiceHint = voiceBlockMatch?.[1]?.trim() || undefined;
 
   const piContext: Context = {
@@ -431,7 +433,9 @@ export function stripTtsDirectivesForDisplay(payload: ReplyPayload): ReplyPayloa
   if (!payload.text) {
     return payload;
   }
-  const cleaned = payload.text.replace(/\[\[tts:text\]\][\s\S]*?\[\[\/tts:text\]\]/gi, "").trim();
+  const cleaned = payload.text
+    .replace(/\[\[tts:text\]\][\s\S]*?\[{1,2}\/tts:text\]\]/gi, "")
+    .trim();
   return { ...payload, text: cleaned || payload.text };
 }
 
