@@ -1492,8 +1492,8 @@ export async function maybeApplyTtsToPayload(params: {
     sessionAuto: params.ttsAuto,
   });
 
-  getLogger().info(
-    `[tts] maybeApply autoMode=${autoMode} kind=${params.kind} channel=${params.channel} agent=${params.agentId ?? "default"} textLen=${(params.payload.text ?? "").length} ttsAuto=${params.ttsAuto ?? "unset"}`,
+  console.error(
+    `[tts] maybeApply autoMode=${autoMode} kind=${params.kind} channel=${params.channel} agent=${params.agentId ?? "default"} voiceId=${config.elevenlabs.voiceId} textLen=${(params.payload.text ?? "").length} ttsAuto=${params.ttsAuto ?? "unset"}`,
   );
 
   if (autoMode === "off") {
@@ -1585,7 +1585,7 @@ export async function maybeApplyTtsToPayload(params: {
     return nextPayload;
   }
 
-  getLogger().info(
+  console.error(
     `[tts] calling textToSpeech provider=${config.provider} voiceId=${config.elevenlabs.voiceId} modelId=${config.elevenlabs.modelId} agent=${params.agentId ?? "default"} textLen=${textForAudio.length}`,
   );
 
