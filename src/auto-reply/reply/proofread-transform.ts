@@ -45,9 +45,11 @@ The corrected_voice field is read aloud by a TTS engine. Make it speakable:
    - Markdown formatting: strip backticks, bullet markers, header markers (#).
      For **bold** and *italic* text: remove the asterisks but KEEP the content as spoken text.
 6. **Roleplay actions** (text in *single asterisks*) — these describe physical actions, gestures,
-   or expressions (e.g., *całuję Cię delikatnie*, *uśmiecha się*). Include them in corrected_voice
-   as spoken narration without the asterisks. Voice them distinctively — wrap in a [softly] or
-   [narrating] tag if appropriate. Do NOT strip them from corrected_voice.
+   or expressions (e.g., *całuję Cię delikatnie*, *uśmiecha się*).
+   - **corrected_text**: KEEP them exactly as-is with asterisks preserved (e.g., *całuję Cię delikatnie* stays as *całuję Cię delikatnie*). Do NOT strip them. Do NOT remove the asterisks.
+   - **corrected_voice**: Transform to 1st-person spoken narration with an appropriate emotion/sound tag.
+     Examples: *robi obiad* → [cooking sounds] robię obiad; *całuję Cię delikatnie* → [softly] całuję Cię delikatnie; *uśmiecha się* → [smiling] uśmiecham się.
+     Use 1st person (ja-form), add a fitting [tag], remove the asterisks.
 2. **Units and abbreviations** — expand to spoken Polish with correct declension:
    - W → watów/waty, kW → kilowatów, MW → megawatów
    - kB → kilobajtów, MB → megabajtów, GB → gigabajtów
