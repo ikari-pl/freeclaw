@@ -2,7 +2,7 @@ import type { OpenClawConfig } from "../../config/config.js";
 import type { FinalizedMsgContext } from "../templating.js";
 import type { GetReplyOptions, ReplyPayload } from "../types.js";
 import type { ReplyDispatcher, ReplyDispatchKind } from "./reply-dispatcher.js";
-import { resolveAgentDir, resolveSessionAgentId } from "../../agents/agent-scope.js";
+import { resolveSessionAgentId } from "../../agents/agent-scope.js";
 import { loadSessionStore, resolveStorePath } from "../../config/sessions.js";
 import { logVerbose } from "../../globals.js";
 import { isDiagnosticsEnabled } from "../../infra/diagnostic-events.js";
@@ -11,13 +11,11 @@ import {
   logMessageQueued,
   logSessionStateChange,
 } from "../../logging/diagnostic.js";
-import { getLogger } from "../../logging/logger.js";
 import { getGlobalHookRunner } from "../../plugins/hook-runner-global.js";
 import { maybeApplyTtsToPayload, normalizeTtsAutoMode, resolveTtsConfig } from "../../tts/tts.js";
 import { getReplyFromConfig } from "../reply.js";
 import { formatAbortReplyText, tryFastAbortFromMessage } from "./abort.js";
 import { shouldSkipDuplicateInbound } from "./inbound-dedupe.js";
-import { maybeProofreadPayload, stripTtsDirectivesForDisplay } from "./proofread-transform.js";
 import { isRoutableChannel, routeReply } from "./route-reply.js";
 
 const AUDIO_PLACEHOLDER_RE = /^<media:audio>(\s*\([^)]*\))?$/i;
@@ -149,17 +147,6 @@ export async function dispatchReplyFromConfig(params: {
 
   const inboundAudio = isInboundAudioContext(ctx);
   const sessionTtsAuto = resolveSessionTtsAuto(ctx, cfg);
-
-  // Resolve agent for proofread + per-agent TTS voice.
-  // For native commands (/reset etc.), prefer CommandTargetSessionKey which carries the
-  // agent-prefixed session key (e.g. "agent:brian:direct:569397947"), because SessionKey
-  // is just "telegram:slash:<chatId>" and parseAgentSessionKey won't find an agent in it.
-  const effectiveSessionKey =
-    (ctx.CommandSource === "native" ? ctx.CommandTargetSessionKey?.trim() : undefined) ??
-    ctx.SessionKey;
-  const sessionAgentId = resolveSessionAgentId({ sessionKey: effectiveSessionKey, config: cfg });
-  const proofreadAgentDir = sessionAgentId ? resolveAgentDir(cfg, sessionAgentId) : undefined;
-
   const hookRunner = getGlobalHookRunner();
   if (hookRunner?.hasHooks("message_received")) {
     const timestamp =
@@ -291,7 +278,6 @@ export async function dispatchReplyFromConfig(params: {
       } else {
         queuedFinal = dispatcher.sendFinalReply(payload);
       }
-      await dispatcher.waitForIdle();
       const counts = dispatcher.getQueuedCounts();
       counts.final += routedFinalCount;
       recordProcessed("completed", { reason: "fast_abort" });
@@ -307,31 +293,45 @@ export async function dispatchReplyFromConfig(params: {
 
     const shouldSendToolSummaries = ctx.ChatType !== "group" && ctx.CommandSource !== "native";
 
+    const resolveToolDeliveryPayload = (payload: ReplyPayload): ReplyPayload | null => {
+      if (shouldSendToolSummaries) {
+        return payload;
+      }
+      // Group/native flows intentionally suppress tool summary text, but media-only
+      // tool results (for example TTS audio) must still be delivered.
+      const hasMedia = Boolean(payload.mediaUrl) || (payload.mediaUrls?.length ?? 0) > 0;
+      if (!hasMedia) {
+        return null;
+      }
+      return { ...payload, text: undefined };
+    };
+
     const replyResult = await (params.replyResolver ?? getReplyFromConfig)(
       ctx,
       {
         ...params.replyOptions,
-        onToolResult: shouldSendToolSummaries
-          ? (payload: ReplyPayload) => {
-              const run = async () => {
-                const ttsPayload = await maybeApplyTtsToPayload({
-                  payload,
-                  cfg,
-                  channel: ttsChannel,
-                  kind: "tool",
-                  inboundAudio,
-                  ttsAuto: sessionTtsAuto,
-                  agentId: sessionAgentId,
-                });
-                if (shouldRouteToOriginating) {
-                  await sendPayloadAsync(ttsPayload, undefined, false);
-                } else {
-                  dispatcher.sendToolResult(ttsPayload);
-                }
-              };
-              return run();
+        onToolResult: (payload: ReplyPayload) => {
+          const run = async () => {
+            const ttsPayload = await maybeApplyTtsToPayload({
+              payload,
+              cfg,
+              channel: ttsChannel,
+              kind: "tool",
+              inboundAudio,
+              ttsAuto: sessionTtsAuto,
+            });
+            const deliveryPayload = resolveToolDeliveryPayload(ttsPayload);
+            if (!deliveryPayload) {
+              return;
             }
-          : undefined,
+            if (shouldRouteToOriginating) {
+              await sendPayloadAsync(deliveryPayload, undefined, false);
+            } else {
+              dispatcher.sendToolResult(deliveryPayload);
+            }
+          };
+          return run();
+        },
         onBlockReply: (payload: ReplyPayload, context) => {
           const run = async () => {
             // Accumulate block text for TTS generation after streaming
@@ -349,7 +349,6 @@ export async function dispatchReplyFromConfig(params: {
               kind: "block",
               inboundAudio,
               ttsAuto: sessionTtsAuto,
-              agentId: sessionAgentId,
             });
             if (shouldRouteToOriginating) {
               await sendPayloadAsync(ttsPayload, context?.abortSignal, false);
@@ -365,56 +364,17 @@ export async function dispatchReplyFromConfig(params: {
 
     const replies = replyResult ? (Array.isArray(replyResult) ? replyResult : [replyResult]) : [];
 
-    const ttsMode = resolveTtsConfig(cfg).mode ?? "final";
-    const isDeferred = ttsMode === "deferred";
-
     let queuedFinal = false;
     let routedFinalCount = 0;
-    // Accumulate text from all final replies for deferred TTS generation.
-    const deferredTtsTexts: string[] = [];
-
-    // Check per-agent proofread override (e.g. brian has proofread.auto=false
-    // because the global proofreader is a Polish-language editor).
-    const agentEntry = sessionAgentId
-      ? cfg.agents?.list?.find((a) => a.id === sessionAgentId)
-      : undefined;
-    const agentProofreadDisabled = agentEntry?.proofread?.auto === false;
-
     for (const reply of replies) {
-      // Automatic proofread: correct Polish text before TTS picks it up.
-      // The transform embeds [[tts:text]]corrected_voice[[/tts:text]] directives
-      // that parseTtsDirectives() will extract for the voice-optimized variant.
-      const proofreadReply = agentProofreadDisabled
-        ? reply
-        : await maybeProofreadPayload({
-            payload: reply,
-            cfg,
-            agentDir: proofreadAgentDir,
-            sessionKey: ctx.SessionKey,
-          });
-
-      // In deferred mode, send text immediately without waiting for TTS.
-      // Strip [[tts:text]] directives from display text so they don't leak to users.
-      const ttsReply = isDeferred
-        ? stripTtsDirectivesForDisplay(proofreadReply)
-        : await maybeApplyTtsToPayload({
-            payload: proofreadReply,
-            cfg,
-            channel: ttsChannel,
-            kind: "final",
-            inboundAudio,
-            ttsAuto: sessionTtsAuto,
-            agentId: sessionAgentId,
-          });
-
-      // For deferred TTS, accumulate full text (with directives) so TTS gets corrected_voice.
-      if (isDeferred && proofreadReply.text?.trim()) {
-        deferredTtsTexts.push(proofreadReply.text.trim());
-        getLogger().info(
-          `[tts/deferred] accumulated reply text (${proofreadReply.text.trim().length} chars, hasDirective=${proofreadReply.text.includes("[[tts:text]]")})`,
-        );
-      }
-
+      const ttsReply = await maybeApplyTtsToPayload({
+        payload: reply,
+        cfg,
+        channel: ttsChannel,
+        kind: "final",
+        inboundAudio,
+        ttsAuto: sessionTtsAuto,
+      });
       if (shouldRouteToOriginating && originatingChannel && originatingTo) {
         // Route final reply to originating channel.
         const result = await routeReply({
@@ -440,68 +400,12 @@ export async function dispatchReplyFromConfig(params: {
       }
     }
 
-    // Deferred TTS: generate audio after text was already sent, then deliver audio-only.
-    getLogger().info(
-      `[tts/deferred] check: isDeferred=${isDeferred} deferredCount=${deferredTtsTexts.length} repliesLen=${replies.length} blockCount=${blockCount}`,
-    );
-    if (isDeferred && deferredTtsTexts.length > 0) {
-      try {
-        const combinedText = deferredTtsTexts.join("\n\n");
-        getLogger().info(
-          `[tts/deferred] generating audio: combinedLen=${combinedText.length} channel=${ttsChannel} sessionTtsAuto=${sessionTtsAuto ?? "unset"}`,
-        );
-        const ttsResult = await maybeApplyTtsToPayload({
-          payload: { text: combinedText },
-          cfg,
-          channel: ttsChannel,
-          kind: "final",
-          inboundAudio,
-          ttsAuto: sessionTtsAuto,
-          agentId: sessionAgentId,
-        });
-        getLogger().info(
-          `[tts/deferred] result: hasMediaUrl=${Boolean(ttsResult.mediaUrl)} hasText=${Boolean(ttsResult.text)}`,
-        );
-        if (ttsResult.mediaUrl) {
-          const ttsOnlyPayload: ReplyPayload = {
-            mediaUrl: ttsResult.mediaUrl,
-            audioAsVoice: ttsResult.audioAsVoice,
-          };
-          if (shouldRouteToOriginating && originatingChannel && originatingTo) {
-            const result = await routeReply({
-              payload: ttsOnlyPayload,
-              channel: originatingChannel,
-              to: originatingTo,
-              sessionKey: ctx.SessionKey,
-              accountId: ctx.AccountId,
-              threadId: ctx.MessageThreadId,
-              cfg,
-            });
-            queuedFinal = result.ok || queuedFinal;
-            if (result.ok) {
-              routedFinalCount += 1;
-            }
-            if (!result.ok) {
-              logVerbose(
-                `dispatch-from-config: route-reply (deferred-tts) failed: ${result.error ?? "unknown error"}`,
-              );
-            }
-          } else {
-            const didQueue = dispatcher.sendFinalReply(ttsOnlyPayload);
-            queuedFinal = didQueue || queuedFinal;
-          }
-        }
-      } catch (err) {
-        getLogger().warn(
-          `[tts/deferred] failed: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      }
-    }
+    const ttsMode = resolveTtsConfig(cfg).mode ?? "final";
     // Generate TTS-only reply after block streaming completes (when there's no final reply).
     // This handles the case where block streaming succeeds and drops final payloads,
     // but we still want TTS audio to be generated from the accumulated block content.
     if (
-      (ttsMode === "final" || ttsMode === "deferred") &&
+      ttsMode === "final" &&
       replies.length === 0 &&
       blockCount > 0 &&
       accumulatedBlockText.trim()
@@ -514,7 +418,6 @@ export async function dispatchReplyFromConfig(params: {
           kind: "final",
           inboundAudio,
           ttsAuto: sessionTtsAuto,
-          agentId: sessionAgentId,
         });
         // Only send if TTS was actually applied (mediaUrl exists)
         if (ttsSyntheticReply.mediaUrl) {
@@ -553,8 +456,6 @@ export async function dispatchReplyFromConfig(params: {
         );
       }
     }
-
-    await dispatcher.waitForIdle();
 
     const counts = dispatcher.getQueuedCounts();
     counts.final += routedFinalCount;

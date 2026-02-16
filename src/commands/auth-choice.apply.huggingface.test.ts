@@ -2,18 +2,30 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { RuntimeEnv } from "../runtime.js";
 import type { WizardPrompter } from "../wizard/prompts.js";
+import { captureEnv } from "../test-utils/env.js";
 import { applyAuthChoiceHuggingface } from "./auth-choice.apply.huggingface.js";
+import { createExitThrowingRuntime, createWizardPrompter } from "./test-wizard-helpers.js";
 
-const noopAsync = async () => {};
-const noop = () => {};
 const authProfilePathFor = (agentDir: string) => path.join(agentDir, "auth-profiles.json");
 
+function createHuggingfacePrompter(params: {
+  text: WizardPrompter["text"];
+  select: WizardPrompter["select"];
+  confirm?: WizardPrompter["confirm"];
+}): WizardPrompter {
+  const overrides: Partial<WizardPrompter> = {
+    text: params.text,
+    select: params.select,
+  };
+  if (params.confirm) {
+    overrides.confirm = params.confirm;
+  }
+  return createWizardPrompter(overrides, { defaultSelect: "" });
+}
+
 describe("applyAuthChoiceHuggingface", () => {
-  const previousAgentDir = process.env.OPENCLAW_AGENT_DIR;
-  const previousHfToken = process.env.HF_TOKEN;
-  const previousHubToken = process.env.HUGGINGFACE_HUB_TOKEN;
+  const envSnapshot = captureEnv(["OPENCLAW_AGENT_DIR", "HF_TOKEN", "HUGGINGFACE_HUB_TOKEN"]);
   let tempStateDir: string | null = null;
 
   afterEach(async () => {
@@ -21,21 +33,7 @@ describe("applyAuthChoiceHuggingface", () => {
       await fs.rm(tempStateDir, { recursive: true, force: true });
       tempStateDir = null;
     }
-    if (previousAgentDir === undefined) {
-      delete process.env.OPENCLAW_AGENT_DIR;
-    } else {
-      process.env.OPENCLAW_AGENT_DIR = previousAgentDir;
-    }
-    if (previousHfToken === undefined) {
-      delete process.env.HF_TOKEN;
-    } else {
-      process.env.HF_TOKEN = previousHfToken;
-    }
-    if (previousHubToken === undefined) {
-      delete process.env.HUGGINGFACE_HUB_TOKEN;
-    } else {
-      process.env.HUGGINGFACE_HUB_TOKEN = previousHubToken;
-    }
+    envSnapshot.restore();
   });
 
   it("returns null when authChoice is not huggingface-api-key", async () => {
@@ -59,23 +57,8 @@ describe("applyAuthChoiceHuggingface", () => {
     const select: WizardPrompter["select"] = vi.fn(
       async (params) => params.options?.[0]?.value as never,
     );
-    const prompter: WizardPrompter = {
-      intro: vi.fn(noopAsync),
-      outro: vi.fn(noopAsync),
-      note: vi.fn(noopAsync),
-      select,
-      multiselect: vi.fn(async () => []),
-      text,
-      confirm: vi.fn(async () => false),
-      progress: vi.fn(() => ({ update: noop, stop: noop })),
-    };
-    const runtime: RuntimeEnv = {
-      log: vi.fn(),
-      error: vi.fn(),
-      exit: vi.fn((code: number) => {
-        throw new Error(`exit:${code}`);
-      }),
-    };
+    const prompter = createHuggingfacePrompter({ text, select });
+    const runtime = createExitThrowingRuntime();
 
     const result = await applyAuthChoiceHuggingface({
       authChoice: "huggingface-api-key",
@@ -119,23 +102,8 @@ describe("applyAuthChoiceHuggingface", () => {
       async (params) => params.options?.[0]?.value as never,
     );
     const confirm = vi.fn(async () => true);
-    const prompter: WizardPrompter = {
-      intro: vi.fn(noopAsync),
-      outro: vi.fn(noopAsync),
-      note: vi.fn(noopAsync),
-      select,
-      multiselect: vi.fn(async () => []),
-      text,
-      confirm,
-      progress: vi.fn(() => ({ update: noop, stop: noop })),
-    };
-    const runtime: RuntimeEnv = {
-      log: vi.fn(),
-      error: vi.fn(),
-      exit: vi.fn((code: number) => {
-        throw new Error(`exit:${code}`);
-      }),
-    };
+    const prompter = createHuggingfacePrompter({ text, select, confirm });
+    const runtime = createExitThrowingRuntime();
 
     const result = await applyAuthChoiceHuggingface({
       authChoice: "huggingface-api-key",

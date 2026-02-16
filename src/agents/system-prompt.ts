@@ -4,6 +4,7 @@ import type { ResolvedTimeFormat } from "./date-time.js";
 import type { EmbeddedContextFile } from "./pi-embedded-helpers.js";
 import { SILENT_REPLY_TOKEN } from "../auto-reply/tokens.js";
 import { listDeliverableMessageChannels } from "../utils/message-channel.js";
+import { sanitizeForPromptLiteral } from "./sanitize-for-prompt.js";
 
 const PERSONA_FILENAMES = new Set(["soul.md", "identity.md"]);
 
@@ -207,6 +208,7 @@ export function buildAgentSystemPrompt(params: {
   sandboxInfo?: {
     enabled: boolean;
     workspaceDir?: string;
+    containerWorkspaceDir?: string;
     workspaceAccess?: "none" | "ro" | "rw";
     agentWorkspaceMount?: string;
     browserBridgeUrl?: string;
@@ -358,6 +360,19 @@ export function buildAgentSystemPrompt(params: {
   const messageChannelOptions = listDeliverableMessageChannels().join("|");
   const promptMode = params.promptMode ?? "full";
   const isMinimal = promptMode === "minimal" || promptMode === "none";
+  const sandboxContainerWorkspace = params.sandboxInfo?.containerWorkspaceDir?.trim();
+  const sanitizedWorkspaceDir = sanitizeForPromptLiteral(params.workspaceDir);
+  const sanitizedSandboxContainerWorkspace = sandboxContainerWorkspace
+    ? sanitizeForPromptLiteral(sandboxContainerWorkspace)
+    : "";
+  const displayWorkspaceDir =
+    params.sandboxInfo?.enabled && sanitizedSandboxContainerWorkspace
+      ? sanitizedSandboxContainerWorkspace
+      : sanitizedWorkspaceDir;
+  const workspaceGuidance =
+    params.sandboxInfo?.enabled && sanitizedSandboxContainerWorkspace
+      ? `For read/write/edit/apply_patch, file paths resolve against host workspace: ${sanitizedWorkspaceDir}. For bash/exec commands, use sandbox container paths under ${sanitizedSandboxContainerWorkspace} (or relative paths from that workdir), not host paths. Prefer relative paths so both sandboxed exec and file tools work consistently.`
+      : "Treat this directory as the single global workspace for file operations unless explicitly instructed otherwise.";
   const safetyLevel = params.safetyPrompt ?? "full";
   const safetySection =
     safetyLevel === "off"
@@ -490,8 +505,8 @@ export function buildAgentSystemPrompt(params: {
       ? "If you need the current date, time, or day of week, run session_status (📊 session_status)."
       : "",
     "## Workspace",
-    `Your working directory is: ${params.workspaceDir}`,
-    "Treat this directory as the single global workspace for file operations unless explicitly instructed otherwise.",
+    `Your working directory is: ${displayWorkspaceDir}`,
+    workspaceGuidance,
     ...workspaceNotes,
     "",
     ...docsSection,
@@ -501,19 +516,22 @@ export function buildAgentSystemPrompt(params: {
           "You are running in a sandboxed runtime (tools execute in Docker).",
           "Some tools may be unavailable due to sandbox policy.",
           "Sub-agents stay sandboxed (no elevated/host access). Need outside-sandbox read/write? Don't spawn; ask first.",
+          params.sandboxInfo.containerWorkspaceDir
+            ? `Sandbox container workdir: ${sanitizeForPromptLiteral(params.sandboxInfo.containerWorkspaceDir)}`
+            : "",
           params.sandboxInfo.workspaceDir
-            ? `Sandbox workspace: ${params.sandboxInfo.workspaceDir}`
+            ? `Sandbox host mount source (file tools bridge only; not valid inside sandbox exec): ${sanitizeForPromptLiteral(params.sandboxInfo.workspaceDir)}`
             : "",
           params.sandboxInfo.workspaceAccess
             ? `Agent workspace access: ${params.sandboxInfo.workspaceAccess}${
                 params.sandboxInfo.agentWorkspaceMount
-                  ? ` (mounted at ${params.sandboxInfo.agentWorkspaceMount})`
+                  ? ` (mounted at ${sanitizeForPromptLiteral(params.sandboxInfo.agentWorkspaceMount)})`
                   : ""
               }`
             : "",
           params.sandboxInfo.browserBridgeUrl ? "Sandbox browser: enabled." : "",
           params.sandboxInfo.browserNoVncUrl
-            ? `Sandbox browser observer (noVNC): ${params.sandboxInfo.browserNoVncUrl}`
+            ? `Sandbox browser observer (noVNC): ${sanitizeForPromptLiteral(params.sandboxInfo.browserNoVncUrl)}`
             : "",
           params.sandboxInfo.hostBrowserAllowed === true
             ? "Host browser control: allowed."
