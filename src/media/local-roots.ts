@@ -6,13 +6,20 @@ import { resolveStateDir } from "../config/paths.js";
 
 function buildMediaLocalRoots(stateDir: string): string[] {
   const resolvedStateDir = path.resolve(stateDir);
-  return [
+  const roots = [
     os.tmpdir(),
     path.join(resolvedStateDir, "media"),
     path.join(resolvedStateDir, "agents"),
     path.join(resolvedStateDir, "workspace"),
     path.join(resolvedStateDir, "sandboxes"),
   ];
+  // On macOS, os.tmpdir() returns the per-user temp dir (/var/folders/…/T),
+  // but agents and the gateway also write to /tmp (symlink to /private/tmp).
+  // Add /private/tmp so images saved under /tmp/ are allowed.
+  if (process.platform === "darwin") {
+    roots.push("/private/tmp");
+  }
+  return roots;
 }
 
 export function getDefaultMediaLocalRoots(): readonly string[] {
