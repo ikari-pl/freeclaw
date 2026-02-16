@@ -30,7 +30,7 @@ describe("proofread tool", () => {
     expect(tool).not.toBeNull();
     expect(tool?.name).toBe("proofread");
     expect(tool?.label).toBe("Proofread");
-    expect(tool?.description).toContain("Polish");
+    expect(tool?.description).toContain("any language");
     expect(tool?.description).toContain("grammar");
   });
 

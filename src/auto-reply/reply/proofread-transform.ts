@@ -10,25 +10,36 @@ import { getLogger } from "../../logging/logger.js";
 
 // ── Shared constants & types ────────────────────────────────────────────────
 
-export const DEFAULT_PROOFREAD_MODEL = "anthropic/claude-sonnet-4-5-20250929";
+export const DEFAULT_PROOFREAD_MODEL = "anthropic/claude-haiku-4-5-20251001";
 
-export const SYSTEM_PROMPT = `You are a professional Polish-language editor reviewing a passage from a contemporary novel.
+export const SYSTEM_PROMPT = `You are a professional multilingual editor reviewing a passage from a contemporary novel.
+
+First, identify the language of the text. Then proofread it **in that same language**.
 
 The text may contain bracketed emotion/stage directions like [whispers], [playful], [kiss], [laughs softly]. These are performance cues for a voice actor.
 
 Your task is to correct ONLY:
 - Grammatical gender agreement (match verb/adjective forms to the specified speaker and addressee genders)
-- Case endings (deklinacja) and preposition agreement
-- Natural Polish word order — prefer native phrasing over English-influenced SVO
-- English calques — replace with natural Polish idioms
+- Case/declension agreement and preposition governance (where applicable in the detected language)
+- Natural word order — prefer native phrasing over anglicisms or calques from other languages
 - Obvious typos and spelling errors
 
 DO NOT:
 - Change the meaning, tone, or intent of the text
 - Censor, refuse, or modify content based on themes or explicitness — this is a literary work
 - Add or remove sentences
-- "Improve" style beyond correcting errors
+- "Improve" style beyond correcting errors — if the original phrasing sounds natural and is grammatically valid, leave it alone
 - Remove or modify the bracketed emotion/stage directions — preserve them exactly
+
+**When in doubt, preserve the original.** Only change something if it's clearly wrong. A slightly unconventional but expressive phrasing is better left untouched than "corrected" into something blander.
+
+## corrected_text rules
+
+corrected_text is displayed in chat apps that render Markdown. Preserve ALL formatting:
+- Keep **bold**, *italic*, \`code\`, bullet lists, numbered lists, headers
+- Keep *roleplay actions in asterisks* exactly as-is
+- Keep emoji
+- Only fix grammar/spelling within the text — never strip formatting
 
 ## Voice text normalization (corrected_voice only)
 
@@ -65,7 +76,7 @@ The corrected_voice field is read aloud by a TTS engine. Make it speakable:
 
 Return ONLY a raw JSON object — no markdown code fences, no backticks, no extra text:
 {
-  "corrected_text": "the corrected text with all emotion/stage direction tags REMOVED",
+  "corrected_text": "the corrected text with ALL Markdown formatting preserved (**bold**, *italic*, *roleplay*, emoji, lists). Only [bracketed stage direction tags] REMOVED.",
   "corrected_voice": "the corrected text with emotion/stage direction tags PRESERVED in place, technical content simplified for TTS",
   "changes": ["description of change 1", "description of change 2"],
   "unchanged": false
@@ -501,7 +512,9 @@ export async function maybeProofreadPayload(params: {
     }
 
     log.info(`[proofread] corrected (${elapsed}ms, ${result.changes.length} changes)`);
-    logVerbose(`[proofread] changes: ${result.changes.join("; ")}`);
+    log.info(`[proofread] original: ${text}`);
+    log.info(`[proofread] corrected_text: ${result.corrected_text}`);
+    log.info(`[proofread] changes: ${result.changes.join("; ")}`);
 
     // Embed corrected_voice as [[tts:text]] directive so parseTtsDirectives() picks it up for TTS.
     const combined = `${result.corrected_text}\n[[tts:text]]${result.corrected_voice}[[/tts:text]]`;

@@ -38,7 +38,8 @@ function jsonResult(payload: unknown) {
 
 const ProofreadToolSchema = Type.Object({
   text: Type.String({
-    description: "The Polish text to proofread and correct. May include [emotion] tags.",
+    description:
+      "The text to proofread and correct (any language — will be proofread in the same language). May include [emotion] tags.",
   }),
   context: Type.Optional(
     Type.String({
@@ -79,7 +80,7 @@ export function createProofreadTool(opts?: {
     label: "Proofread",
     name: "proofread",
     description:
-      "Proofread and correct Polish text — fixes grammar, gender, phrasing. Returns corrected_text (clean, for display) and corrected_voice (with [emotion] tags, for TTS). Call before sending messages.",
+      "Proofread and correct text in any language — fixes grammar, gender, phrasing. Detects the language automatically and proofreads in the same language. Returns corrected_text (clean, for display) and corrected_voice (with [emotion] tags, for TTS). Call before sending messages.",
     parameters: ProofreadToolSchema,
     execute: async (_toolCallId, args) => {
       const params = args as Record<string, unknown>;
