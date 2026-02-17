@@ -96,6 +96,25 @@ function parseNumberValue(value: string): number | undefined {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
+/**
+ * Convert inline TTS tags to display-friendly text.
+ *
+ * - `[Language]word[/Language]` → `word` (strip pronunciation hints)
+ * - `[emotion or action]` → `*emotion or action*` (italicize)
+ * - Markdown links `[text](url)` are preserved.
+ */
+export function stripInlineTtsTagsForDisplay(text: string): string {
+  // 1. Strip language pronunciation wrappers, keep inner content.
+  let result = text.replace(/\[(\w+)\](.*?)\[\/\1\]/gs, "$2");
+  // 2. Remove TTS-only pause directives entirely (not meaningful for chat).
+  result = result.replace(/\s*\[(long|medium|short) pause\]/gi, "");
+  // 3. Convert remaining [bracketed tags] to *italics*, but skip:
+  //    - markdown links [text](url) via (?!\()
+  //    - double-bracket directives [[tts:...]] via (?<!\[)
+  result = result.replace(/(?<!\[)\[([^[\]]+)\](?!\()/g, "*$1*");
+  return result;
+}
+
 export function parseTtsDirectives(
   text: string,
   policy: ResolvedTtsModelOverrides,
@@ -424,6 +443,80 @@ function resolveSummaryModelRef(
 
 function isTextContentBlock(block: { type: string }): block is TextContent {
   return block.type === "text";
+}
+
+// Detects content that TTS engines read poorly (IPs, paths, URLs, MACs, version numbers).
+const TTS_UNSPEAKABLE_RE =
+  /\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}|[0-9a-fA-F]{2}(?::[0-9a-fA-F]{2}){5}|(?:\/[\w.-]+){2,}|https?:\/\/\S+|\d+\.\d+\.\d+/;
+
+export function needsTtsSpeechCleanup(text: string): boolean {
+  return TTS_UNSPEAKABLE_RE.test(text);
+}
+
+export async function cleanupTtsForSpeech(params: {
+  text: string;
+  cfg: OpenClawConfig;
+  config: ResolvedTtsConfig;
+  timeoutMs: number;
+}): Promise<string> {
+  const { text, cfg, config, timeoutMs } = params;
+  const { ref } = resolveSummaryModelRef(cfg, config);
+  const resolved = resolveModel(ref.provider, ref.model, undefined, cfg);
+  if (!resolved.model) {
+    return text; // fallback: return original
+  }
+  const apiKey = requireApiKey(
+    await getApiKeyForModel({ model: resolved.model, cfg }),
+    ref.provider,
+  );
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const res = await completeSimple(
+      resolved.model,
+      {
+        messages: [
+          {
+            role: "user",
+            content:
+              `Rewrite this text for natural text-to-speech. Rules:\n` +
+              `- Replace IP addresses with device names if obvious from context, otherwise spell out naturally (e.g. "192.168.1.1" → "one ninety-two, one sixty-eight, one, one")\n` +
+              `- Simplify file paths (e.g. "/Users/ikari/clawd/scripts" → "the scripts folder")\n` +
+              `- Remove or describe URLs instead of reading them\n` +
+              `- Expand version numbers naturally (e.g. "3.14.2" → "three fourteen two")\n` +
+              `- Expand MAC addresses or skip them\n` +
+              `- Keep ALL [emotion] tags like [whispers], [playful] exactly as-is\n` +
+              `- Keep ALL [Language]word[/Language] tags exactly as-is\n` +
+              `- Keep the same language (Polish, English, etc.)\n` +
+              `- Reply ONLY with the rewritten text, nothing else.\n\n` +
+              `<text>\n${text}\n</text>`,
+            timestamp: Date.now(),
+          },
+        ],
+      },
+      {
+        apiKey,
+        maxTokens: Math.ceil(text.length / 2),
+        temperature: 0.2,
+        signal: controller.signal,
+      },
+    );
+
+    const cleaned = res.content
+      .filter(isTextContentBlock)
+      .map((block) => block.text.trim())
+      .filter(Boolean)
+      .join(" ")
+      .trim();
+
+    return cleaned || text;
+  } catch {
+    return text; // on any failure, use original
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 export async function summarizeText(params: {

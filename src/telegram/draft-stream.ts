@@ -9,6 +9,8 @@ export type TelegramDraftStream = {
   flush: () => Promise<void>;
   messageId: () => number | undefined;
   clear: () => Promise<void>;
+  /** Clear only orphaned draft messages (from forceNewMessage calls), keep current. */
+  clearOrphans: () => Promise<void>;
   stop: () => void;
   /** Reset internal state so the next update creates a new message instead of editing. */
   forceNewMessage: () => void;
@@ -37,6 +39,7 @@ export function createTelegramDraftStream(params: {
       : threadParams;
 
   let streamMessageId: number | undefined;
+  const orphanedMessageIds: number[] = [];
   let lastSentText = "";
   let lastSentAt = 0;
   let pendingText = "";
@@ -127,17 +130,20 @@ export function createTelegramDraftStream(params: {
     if (inFlightPromise) {
       await inFlightPromise;
     }
-    const messageId = streamMessageId;
-    streamMessageId = undefined;
-    if (typeof messageId !== "number") {
-      return;
+    // Collect all message IDs to delete (current + orphans).
+    const idsToDelete: number[] = orphanedMessageIds.splice(0);
+    if (typeof streamMessageId === "number") {
+      idsToDelete.push(streamMessageId);
     }
-    try {
-      await params.api.deleteMessage(chatId, messageId);
-    } catch (err) {
-      params.warn?.(
-        `telegram stream preview cleanup failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
+    streamMessageId = undefined;
+    for (const id of idsToDelete) {
+      try {
+        await params.api.deleteMessage(chatId, id);
+      } catch (err) {
+        params.warn?.(
+          `telegram stream preview cleanup failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
     }
   };
 
@@ -177,9 +183,25 @@ export function createTelegramDraftStream(params: {
   };
 
   const forceNewMessage = () => {
+    if (typeof streamMessageId === "number") {
+      orphanedMessageIds.push(streamMessageId);
+    }
     streamMessageId = undefined;
     lastSentText = "";
     pendingText = "";
+  };
+
+  const clearOrphans = async () => {
+    const ids = orphanedMessageIds.splice(0);
+    for (const id of ids) {
+      try {
+        await params.api.deleteMessage(chatId, id);
+      } catch (err) {
+        params.warn?.(
+          `telegram stream orphan cleanup failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
   };
 
   params.log?.(`telegram stream preview ready (maxChars=${maxChars}, throttleMs=${throttleMs})`);
@@ -189,6 +211,7 @@ export function createTelegramDraftStream(params: {
     flush,
     messageId: () => streamMessageId,
     clear,
+    clearOrphans,
     stop,
     forceNewMessage,
   };

@@ -35,8 +35,11 @@ import {
   OPENAI_TTS_MODELS,
   OPENAI_TTS_VOICES,
   openaiTTS,
+  cleanupTtsForSpeech,
+  needsTtsSpeechCleanup,
   parseTtsDirectives,
   scheduleCleanup,
+  stripInlineTtsTagsForDisplay,
   summarizeText,
 } from "./tts-core.js";
 export { OPENAI_TTS_MODELS, OPENAI_TTS_VOICES } from "./tts-core.js";
@@ -364,7 +367,9 @@ export function buildTtsSystemPromptHint(cfg: OpenClawConfig): string | undefine
     "Voice (TTS) is enabled.",
     autoHint,
     `Keep spoken text ≤${maxLength} chars to avoid auto-summary (summary ${summarize}).`,
-    "Use [[tts:...]] and optional [[tts:text]]...[[/tts:text]] to control voice/expressiveness.",
+    "Include [emotion] tags inline (e.g. [whispers], [playful], [laughs softly]) for voice expressiveness — they are stripped from chat text automatically.",
+    "Use [Language]word[/Language] for foreign-word pronunciation (e.g. [Icelandic]Jökull[/Icelandic]) — stripped from chat, kept for voice.",
+    "Do NOT use [[tts:text]] blocks — just write naturally with inline tags.",
   ]
     .filter(Boolean)
     .join("\n");
@@ -789,13 +794,17 @@ export async function maybeApplyTtsToPayload(params: {
   kind?: "tool" | "block" | "final";
   inboundAudio?: boolean;
   ttsAuto?: string;
+  /** Per-agent TTS overrides (voice, model, auto mode). */
+  agentTts?: import("../config/types.agents.js").AgentTtsConfig;
 }): Promise<ReplyPayload> {
   const config = resolveTtsConfig(params.cfg);
   const prefsPath = resolveTtsPrefsPath(config);
+  // Priority: sessionAuto (explicit toggle) > agentAuto (per-agent config) > prefsAuto > configAuto
+  const agentAutoMode = normalizeTtsAutoMode(params.agentTts?.auto);
   const autoMode = resolveTtsAutoMode({
     config,
     prefsPath,
-    sessionAuto: params.ttsAuto,
+    sessionAuto: params.ttsAuto ?? agentAutoMode,
   });
   if (autoMode === "off") {
     return params.payload;
@@ -809,8 +818,11 @@ export async function maybeApplyTtsToPayload(params: {
 
   const cleanedText = directives.cleanedText;
   const trimmedCleaned = cleanedText.trim();
-  const visibleText = trimmedCleaned.length > 0 ? trimmedCleaned : "";
-  const ttsText = directives.ttsText?.trim() || visibleText;
+  // TTS text: prefer explicit [[tts:text]] block (backwards compat), else use cleaned text as-is
+  // (inline [emotion] and [Language]...[/Language] tags are kept for the TTS engine).
+  const ttsText = directives.ttsText?.trim() || trimmedCleaned;
+  // Display text: strip inline TTS tags ([emotion] → *emotion*, [Lang]x[/Lang] → x).
+  const visibleText = stripInlineTtsTagsForDisplay(trimmedCleaned);
 
   const nextPayload =
     visibleText === text.trim()
@@ -880,10 +892,82 @@ export async function maybeApplyTtsToPayload(params: {
     }
   }
 
+  // Clean up unspeakable content (IPs, paths, URLs) via a cheap LLM call — only when detected.
+  if (needsTtsSpeechCleanup(textForAudio)) {
+    try {
+      logVerbose("TTS: detected unspeakable content, running speech cleanup");
+      textForAudio = await cleanupTtsForSpeech({
+        text: textForAudio,
+        cfg: params.cfg,
+        config,
+        timeoutMs: config.timeoutMs,
+      });
+    } catch (err) {
+      logVerbose(
+        `TTS: speech cleanup failed, using original: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
   textForAudio = stripMarkdown(textForAudio).trim(); // strip markdown for TTS (### → "hashtag" etc.)
   if (textForAudio.length < 10) {
     return nextPayload;
   }
+
+  // Append a trailing pause so TTS audio doesn't cut off abruptly.
+  // v3 models (eleven_v3) support natural-language pause tags;
+  // v2/other models rely on punctuation-based prosodic cues.
+  const effectiveModelId =
+    directives.overrides.elevenlabs?.modelId ??
+    params.agentTts?.elevenlabs?.modelId ??
+    config.elevenlabs.modelId;
+  if (effectiveModelId.includes("v3")) {
+    textForAudio += " [long pause]";
+  } else {
+    if (!/[.…!?](\s|$)*$/.test(textForAudio)) {
+      textForAudio += "...";
+    }
+    textForAudio += "\n\n...";
+  }
+
+  // Merge per-agent TTS overrides with inline directive overrides (directives win).
+  const agentTts = params.agentTts;
+  const agentOverrides: TtsDirectiveOverrides | undefined =
+    agentTts?.elevenlabs || agentTts?.openai
+      ? {
+          elevenlabs: agentTts.elevenlabs
+            ? {
+                voiceId: agentTts.elevenlabs.voiceId,
+                modelId: agentTts.elevenlabs.modelId,
+                voiceSettings: agentTts.elevenlabs.voiceSettings,
+              }
+            : undefined,
+          openai: agentTts.openai
+            ? {
+                voice: agentTts.openai.voice,
+                model: agentTts.openai.model,
+              }
+            : undefined,
+        }
+      : undefined;
+  const mergedOverrides: TtsDirectiveOverrides = agentOverrides
+    ? {
+        ...agentOverrides,
+        ...directives.overrides,
+        elevenlabs: {
+          ...agentOverrides.elevenlabs,
+          ...directives.overrides.elevenlabs,
+          voiceSettings: {
+            ...agentOverrides.elevenlabs?.voiceSettings,
+            ...directives.overrides.elevenlabs?.voiceSettings,
+          },
+        },
+        openai: {
+          ...agentOverrides.openai,
+          ...directives.overrides.openai,
+        },
+      }
+    : directives.overrides;
 
   const ttsStart = Date.now();
   const result = await textToSpeech({
@@ -891,7 +975,7 @@ export async function maybeApplyTtsToPayload(params: {
     cfg: params.cfg,
     prefsPath,
     channel: params.channel,
-    overrides: directives.overrides,
+    overrides: mergedOverrides,
   });
 
   if (result.success && result.audioPath) {
@@ -935,6 +1019,7 @@ export const _test = {
   OPENAI_TTS_VOICES,
   parseTtsDirectives,
   resolveModelOverridePolicy,
+  stripInlineTtsTagsForDisplay,
   summarizeText,
   resolveOutputFormat,
   resolveEdgeOutputFormat,

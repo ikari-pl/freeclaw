@@ -47,6 +47,7 @@ describe("dispatchTelegramMessage draft streaming", () => {
       flush: vi.fn().mockResolvedValue(undefined),
       messageId: vi.fn().mockReturnValue(messageId),
       clear: vi.fn().mockResolvedValue(undefined),
+      clearOrphans: vi.fn().mockResolvedValue(undefined),
       stop: vi.fn(),
       forceNewMessage: vi.fn(),
     };

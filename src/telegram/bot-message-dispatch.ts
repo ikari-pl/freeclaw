@@ -265,6 +265,7 @@ export const dispatchTelegramMessage = async ({
     skippedNonSilent: 0,
   };
   let finalizedViaPreviewMessage = false;
+  let draftCleared = false;
   const clearGroupHistory = () => {
     if (isGroup && historyKey) {
       clearHistoryEntriesIfEnabled({ historyMap: groupHistories, historyKey, limit: historyLimit });
@@ -304,7 +305,6 @@ export const dispatchTelegramMessage = async ({
                 | { buttons?: Array<Array<{ text: string; callback_data: string }>> }
                 | undefined
             )?.buttons;
-            let draftStoppedForPreviewEdit = false;
             // Skip preview edit for error payloads to avoid overwriting previous content
             const canFinalizeViaPreviewEdit =
               !finalizedViaPreviewMessage &&
@@ -316,7 +316,6 @@ export const dispatchTelegramMessage = async ({
               !payload.isError;
             if (canFinalizeViaPreviewEdit) {
               draftStream?.stop();
-              draftStoppedForPreviewEdit = true;
               if (
                 currentPreviewText &&
                 currentPreviewText.startsWith(finalText) &&
@@ -336,11 +335,15 @@ export const dispatchTelegramMessage = async ({
                 });
                 finalizedViaPreviewMessage = true;
                 deliveryState.delivered = true;
-                return;
               } catch (err) {
                 logVerbose(
                   `telegram: preview final edit failed; falling back to standard send (${String(err)})`,
                 );
+              }
+              if (finalizedViaPreviewMessage) {
+                // Clean up orphaned draft messages from earlier tool-call turns.
+                await draftStream?.clearOrphans();
+                return;
               }
             }
             if (
@@ -353,8 +356,13 @@ export const dispatchTelegramMessage = async ({
                 `telegram: preview final too long for edit (${finalText.length} > ${draftMaxChars}); falling back to standard send`,
               );
             }
-            if (!draftStoppedForPreviewEdit) {
-              draftStream?.stop();
+            // Clear draft and orphans BEFORE sending the final reply to avoid
+            // both messages being visible simultaneously in the chat.
+            // Skip when the preview was already finalized — clearing would delete
+            // the finalized message that is now the user's response.
+            if (draftStream && !draftCleared && !finalizedViaPreviewMessage) {
+              await draftStream.clear();
+              draftCleared = true;
             }
           }
           const result = await deliverReplies({
@@ -422,7 +430,7 @@ export const dispatchTelegramMessage = async ({
       },
     }));
   } finally {
-    if (!finalizedViaPreviewMessage) {
+    if (!finalizedViaPreviewMessage && !draftCleared) {
       await draftStream?.clear();
     }
     draftStream?.stop();
