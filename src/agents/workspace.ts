@@ -437,16 +437,19 @@ export async function loadWorkspaceBootstrapFiles(dir: string): Promise<Workspac
       filePath: path.join(resolvedDir, DEFAULT_USER_FILENAME),
     },
     {
-      name: DEFAULT_HEARTBEAT_FILENAME,
-      filePath: path.join(resolvedDir, DEFAULT_HEARTBEAT_FILENAME),
-    },
-    {
       name: DEFAULT_BOOTSTRAP_FILENAME,
       filePath: path.join(resolvedDir, DEFAULT_BOOTSTRAP_FILENAME),
     },
   ];
 
   entries.push(...(await resolveMemoryBootstrapEntries(resolvedDir)));
+
+  // HEARTBEAT after MEMORY — it's the longest instruction file and least
+  // critical for identity grounding, so it should yield budget to the others.
+  entries.push({
+    name: DEFAULT_HEARTBEAT_FILENAME,
+    filePath: path.join(resolvedDir, DEFAULT_HEARTBEAT_FILENAME),
+  });
 
   const result: WorkspaceBootstrapFile[] = [];
   for (const entry of entries) {
