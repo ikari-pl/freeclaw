@@ -80,11 +80,11 @@ def main():
     # Initialise client
     client = genai.Client(api_key=api_key)
 
-    # Set up output path — default to /tmp/openclaw/ so MEDIA: tokens pass
-    # the isSafeTempPath check (only /tmp and os.tmpdir() are accepted).
+    # Set up output path — default to pics/ under cwd (typically ~/clawd/pics/)
+    # so generated images persist instead of vanishing when macOS cleans /tmp.
     output_path = Path(args.filename)
     if not output_path.is_absolute() and str(output_path.parent) == ".":
-        output_path = Path("/tmp/openclaw") / output_path
+        output_path = Path("pics") / output_path
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Load input images if provided (up to 14 supported by Nano Banana Pro)
@@ -179,9 +179,6 @@ def main():
                 image_saved = True
 
         if image_saved:
-            # Use absolute() instead of resolve() to avoid /tmp → /private/tmp
-            # symlink expansion on macOS. Node's isSafeTempPath checks /tmp,
-            # not /private/tmp.
             full_path = output_path.absolute()
             print(f"\nImage saved: {full_path}")
             # OpenClaw parses MEDIA tokens and will attach the file on supported providers.
